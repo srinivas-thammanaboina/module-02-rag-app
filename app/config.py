@@ -46,10 +46,12 @@ class Config:
     sec_user_agent: str = ""  # filled in from env below
 
     # --- Chunk ---
-    # Recursive/structure-aware chunker config. Tune these and observe the
-    # effect on retrieval — that's the whole point of having them here.
-    chunk_size: int = 1200       # chars per chunk (target)
-    chunk_overlap: int = 200     # chars of overlap between adjacent chunks
+    # Recursive/structure-aware chunker config (Experiment 1 in chunking-notes.md).
+    # Tune these and observe the effect on retrieval — that's the whole point
+    # of having them here.
+    chunk_size: int = 1000       # max chars per chunk (budget, not target)
+    chunk_overlap: int = 150     # chars of overlap copied from previous chunk
+    chunk_min_size: int = 200    # drop trailing fragments shorter than this
 
     # --- Embed ---
     # bge-small-en-v1.5: 384 dims, fast on CPU, strong on English.

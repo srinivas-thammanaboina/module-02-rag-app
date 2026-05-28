@@ -19,9 +19,11 @@ from __future__ import annotations
 import argparse
 import sys
 
-from app import ingest  # Stage 1
+from app import ingest    # Stage 1
+from app import chunking  # Stage 2
+from app import embed     # Stage 3
 # Future imports (added stage by stage):
-# from app import chunking, embed, store, retrieve, generate
+# from app import store, retrieve, generate
 
 
 def _not_yet(stage_name: str):
@@ -46,15 +48,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_ingest.add_argument("--ticker", required=True, help="e.g. TSLA")
     p_ingest.set_defaults(func=ingest.run_cli)
 
-    # --- Stage 2: chunk (coming next) ---
-    p_chunk = sub.add_parser("chunk", help="(Stage 2) Split a cleaned filing into chunks.")
-    p_chunk.add_argument("--ticker", required=True)
-    p_chunk.set_defaults(func=_not_yet("chunk"))
+    # --- Stage 2: chunk ---
+    p_chunk = sub.add_parser("chunk", help="Split a cleaned filing into chunks.")
+    p_chunk.add_argument("--ticker", required=True, help="e.g. TSLA")
+    p_chunk.set_defaults(func=chunking.run_cli)
 
     # --- Stage 3: embed ---
-    p_embed = sub.add_parser("embed", help="(Stage 3) Embed text and show vector info.")
-    p_embed.add_argument("--text", required=True)
-    p_embed.set_defaults(func=_not_yet("embed"))
+    p_embed = sub.add_parser(
+        "embed",
+        help="Embed text. One --text shows vector stats; two+ shows cosine similarity (first is the query).",
+    )
+    p_embed.add_argument(
+        "--text",
+        required=True,
+        action="append",
+        help="Pass --text once for vector stats, or multiple times: first is query, rest are documents.",
+    )
+    p_embed.set_defaults(func=embed.run_cli)
 
     # --- Stage 4: build (full index pipeline) ---
     p_build = sub.add_parser("build", help="(Stage 4) Run ingest+chunk+embed+store for all tickers.")
