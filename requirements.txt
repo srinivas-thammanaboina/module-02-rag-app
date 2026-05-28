@@ -1,0 +1,17 @@
+# Stage 1: ingest
+requests>=2.32
+beautifulsoup4>=4.12
+lxml>=5.0
+
+# Stage 3: embed (local)
+sentence-transformers>=3.0
+
+# Stage 4: store
+chromadb>=0.5
+
+# Stage 6: generate
+anthropic>=0.40
+
+# Shared
+python-dotenv>=1.0
+numpy>=1.26
