@@ -62,9 +62,22 @@ class Config:
     top_k: int = 5
 
     # --- Generate ---
-    # Opus 4.6 per user preference.
-    anthropic_model: str = "claude-opus-4-6"
+    # Opus 4.8 (bumped from 4.6 at the start of Stage 6 — stronger on the exact
+    # Stage 6 stressors: instruction-following on the citation contract, clean
+    # refusals, and resisting chunk-boundary prompt injection).
+    anthropic_model: str = "claude-opus-4-8"
     anthropic_api_key: str = ""
+
+    # Refusal gate thresholds for the hybrid refusal policy (Stage 6).
+    # CALIBRATED FOR bge-small-en-v1.5 ONLY — these are top-1 cosine bands from
+    # notes/embedding-notes.md. Swap the embedding model and BOTH numbers must be
+    # re-derived against the new model's noise floor (see retrieval-notes.md
+    # Finding 5), or the gate silently misfires.
+    #   top-1 < refuse_floor            -> hard refusal, no API call
+    #   refuse_floor <= top-1 < grey    -> call the model, warn it retrieval was weak
+    #   top-1 >= grey                   -> answer normally
+    refuse_floor: float = 0.52
+    refuse_grey: float = 0.58
 
     def __post_init__(self) -> None:
         self.sec_user_agent = os.getenv("SEC_USER_AGENT", "").strip()

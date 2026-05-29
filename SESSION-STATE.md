@@ -6,11 +6,11 @@
 
 Building a **citation-grounded Q&A copilot over SEC 10-K filings** (per `prompt-instructions.md`). Sequential, stage-by-stage build with a pause for review after each stage.
 
-**Stages 1 → 3 are complete.** Stage 4 (Chroma vector store) is next.
+**Stages 1 → 6 are complete.** Stage 7 (WHY.md + README polish) is next.
 
 ## Confirmed decisions (durable)
 
-- **Generation:** Anthropic, model `claude-opus-4-6`
+- **Generation:** Anthropic, model `claude-opus-4-8` (bumped from `4-6` at the start of Stage 6 — stronger on citation-following, clean refusals, and injection resistance; the exact Stage 6 stressors). Note: Opus 4.8 **deprecates the `temperature` parameter** — the API rejects it, so `generate.py` omits it.
 - **Embedding:** local `BAAI/bge-small-en-v1.5` behind an `Embedder` interface (384-dim, L2-normalized)
 - **Vector DB:** Chroma, persisted to `data/chroma/`
 - **Tickers:** TSLA, AAPL, NVDA
@@ -31,9 +31,8 @@ Building a **citation-grounded Q&A copilot over SEC 10-K filings** (per `prompt-
 | 3 | Embed — `Embedder` interface + local `bge-small` + sanity-check CLI | **done** — vectors normalized, rank ordering correct, score-compression lesson captured |
 | 4 | Store — Chroma persistence + full index build | **done** — 678 rows in `filings` collection, ticker filter verified, 6.7s build |
 | 5 | Retrieve — top-k + metadata filter + company-mismatch warning + top-1 confidence labels | **done** — five-question sanity check passed, two pressure-test mitigations verified, three findings recorded in `notes/retrieval-notes.md` |
-| 6 | Generate — Anthropic call with citation prompt | **next** |
-| 6 | Generate — Anthropic call with citation prompt | pending |
-| 7 | `WHY.md` + `README.md` | pending |
+| 6 | Generate — Anthropic call with citation prompt + hybrid refusal + citation audit | **done** — 5-question run; 0 hallucinated citations; Q4/Q5 refusals; findings in `notes/generation-notes.md` |
+| 7 | `WHY.md` + `README.md` | **next** |
 
 ## Stage 1 result snapshot (cleaned section sizes)
 
@@ -83,6 +82,24 @@ Query: "supply chain risk from foreign suppliers"
 
 **Key lesson captured in `notes/embedding-notes.md`:** rank order correct, but BGE's absolute score range is compressed to ~0.45–0.90. Bands like "0.7 is relevant" do not transfer between embedders — calibrate per-model. Initial predicted bands in `notes/embedding-notes.md` were wrong for BGE; they've been corrected with the actual run's evidence.
 
+## Stage 6 result snapshot (five-question end-to-end run, `claude-opus-4-8`)
+
+```
+Q1  Tesla risks (TSLA)         top-1 0.7722  ANSWERED  5 chunks cited
+Q2  Apple supply chain (AAPL)  top-1 0.6901  ANSWERED  2 chunks cited
+Q3  Tesla+NVIDIA AI (nofilter) top-1 0.7625  PARTIAL   NVDA-only (reproduces Finding 2)
+Q4  Tesla risks (AAPL filter)  top-1 0.6812  REFUSED   chunks are Apple's, Q asks Tesla
+Q5  CEO home address (TSLA)    top-1 0.5656  REFUSED   grey-band prompt path
+
+Hallucinated citations across all 5: 0  (citation audit clean every run)
+```
+
+**Design shipped:** hybrid refusal (hard-gate `<0.52` no-API, grey-band `0.52–0.58` prompt-decides, thresholds in `config`), citation audit (regex-extract `[id]`, split known/unknown), injection defense by role discipline (rules in system, chunks fenced + declared inert in user turn). Full rationale + per-question grading in `notes/generation-notes.md`.
+
+**Two findings worth carrying forward (detail in generation-notes.md):**
+- **Finding B:** a high similarity score is *not* a license to answer. Q4 refused at 0.68 because the chunks answered a different question (Apple's risks, not Tesla's). The confidence gate guards weak retrieval; grounding-to-the-question guards confidently-wrong-company retrieval.
+- **Finding C (queued fix):** the `refused` flag is exact-match, so Q3's "lead with refusal sentence then partially answer" prints as ANSWER with self-contradictory prose. Tighten system rule 3 so the canned refusal line is reserved for *total* refusal; partial answers should answer what's there and state the gap. Deferred — this run is the "before" evidence.
+
 ## Files on disk now
 
 ```
@@ -94,13 +111,14 @@ module-02-rag-app/
 ├── README.md                  ← project entry point + CLI reference + stage status
 ├── SESSION-STATE.md           ← this file
 ├── prompt-instructions.md     ← original project spec
-├── cli.py                     ← Stages 1–5 wired (ingest / chunk / embed / build·store·inspect / retrieve); ask pending
+├── cli.py                     ← Stages 1–6 wired (ingest / chunk / embed / build·store·inspect / retrieve / ask)
 ├── notes/                     ← stage-by-stage design notes (moved into folder at end of Stage 5 session)
 │   ├── ingest-observation.md  ← Stage 1: 3-iteration regex diagnostic story
 │   ├── chunking-notes.md      ← Stage 2: design + Experiment 1/2 + implementation decisions
 │   ├── embedding-notes.md     ← Stage 3: intuition + BGE quirks + score-compression lesson
 │   ├── store-chroma-notes.md  ← Stage 4: numpy-vs-vectorDB framing + design decisions
-│   └── retrieval-notes.md     ← Stage 5: pressure tests + 5-question results + Experiment 7 queued
+│   ├── retrieval-notes.md     ← Stage 5: pressure tests + 5-question results + Experiment 7 queued
+│   └── generation-notes.md    ← Stage 6: citation contract + hybrid refusal + injection defense + 5-question run
 ├── app/
 │   ├── __init__.py
 │   ├── config.py              ← central configuration (paths, tickers, model names, knobs)
@@ -108,7 +126,8 @@ module-02-rag-app/
 │   ├── chunking.py            ← Stage 2: RecursiveChunker (absorption guard + budget reseed)
 │   ├── embed.py               ← Stage 3: Embedder ABC + LocalSentenceTransformerEmbedder
 │   ├── store.py               ← Stage 4: VectorStore ABC + ChromaVectorStore
-│   └── retrieve.py            ← Stage 5: Retriever + company-mismatch warning + confidence labels
+│   ├── retrieve.py            ← Stage 5: Retriever + company-mismatch warning + confidence labels
+│   └── generate.py            ← Stage 6: Generator (hybrid refusal + citation audit) + ask CLI
 └── data/                      ← gitignored build artifacts
     ├── raw/                   ← cached 10-K HTML for TSLA / AAPL / NVDA
     ├── clean/                 ← parsed section JSON for all three
@@ -118,42 +137,31 @@ module-02-rag-app/
 
 ## Carry-forward TODOs (small, deliberately deferred)
 
-1. **`get_sentence_embedding_dimension` FutureWarning** in `app/embed.py:89`. The method was renamed to `get_embedding_dimension` in a recent sentence-transformers release; one-line fix. Cosmetic only — no functional impact.
+1. **`get_sentence_embedding_dimension` FutureWarning** in `app/embed.py:89`. The method was renamed to `get_embedding_dimension` in a recent sentence-transformers release; one-line fix. Cosmetic only — no functional impact. (Still firing — seen again during the Stage 6 run.)
 2. **CLI tail-preview cropping** in `app/chunking.py:_print_sample_chunk`. The tail slice doesn't snap to a word boundary, so sample chunks display previews that *appear* to start mid-word. The chunk content is correct; only the display is ugly. Will fix on next CLI touch.
+3. **Stage 6 Finding C — refusal-contract refinement.** The exact-match `refused` flag mishandles partial answers (Q3 led with the canned refusal sentence then answered). Tighten system rule 3 in `app/generate.py` so the refusal sentence is reserved for *total* refusal; partial answers should answer what's available and state the gap in their own words. This run is the deliberate "before" evidence.
 
-## Stage 6 plan (next session)
+## Stage 6 — DONE (summary)
 
-**What:** wire Claude Opus 4.6 into a `generate` subcommand that takes a question, runs Stage 5 retrieval, formats the chunks into a grounded prompt, and returns an answer with inline `[chunk-id]` citations.
+Shipped `app/generate.py` (`Generator.answer(question, chunks, top_sim) -> dict`) + the `ask` subcommand. Hybrid refusal gate (hard-gate `<0.52` no-API, grey-band `0.52–0.58` prompt-decides, thresholds in `config.refuse_floor`/`refuse_grey`), citation audit (extract `[id]`, split known/unknown), injection defense by role discipline (rules in system prompt; chunks fenced + declared inert in user turn). Five-question run passed: 0 hallucinated citations, Q4+Q5 refused correctly, Q5 via the grey-band path. Full design + grading: `notes/generation-notes.md`. Two findings (B: high sim ≠ answerable; C: refusal-flag refinement queued) carried into the TODO list above.
 
-**Why it matters:** Stage 6 is where the prompt becomes the whole game. Every claim in the answer must be backed by a chunk from retrieval, every chunk must be cite-able, and when retrieval is weak (top-1 < 0.58 per `notes/embedding-notes.md` bands) the model must refuse rather than fabricate. The architecture work is small; the prompt design is the lesson.
+## Stage 7 plan (next session)
 
-**Anticipated structure:**
+**What:** `WHY.md` (design-rationale narrative tying the stages together) + a final `README.md` polish pass now that the pipeline is end-to-end complete.
 
-- `app/generate.py` — new module wrapping the Anthropic client. Public surface:
-  - `Generator.answer(question, chunks, top_sim) -> dict` — takes Stage 5 output + the confidence signal, returns a structured response (answer text, citations, refused flag)
-- `cli.py` — wire `python cli.py ask --question "..." [--company TSLA]` to combine Stage 5 + Stage 6
-- `notes/generation-notes.md` — new design notes following the established pattern
-
-**What I'll teach during Stage 6:**
-
-- **The citation contract** — how to make the model emit `[chunk-id]` inline, and how to verify it
-- **Refusing cleanly when retrieval is weak** — using Stage 5's top-1 confidence label to decide when to refuse rather than fabricate
-- **Prompt-injection defense at the chunk boundary** — filings contain arbitrary text; the prompt must format chunks so they can't escape their data role
-- **System prompt vs per-turn prompt division**
-- **Output structure that the user can trust and verify**
+**Anticipated content for `WHY.md`:** the through-line of *why* each stage's key decision was made — structure-aware chunking, the Embedder/VectorStore interfaces, metadata filtering as the cheapest accuracy lever, the two-layer "retrieval reports, prompt acts" confidence design, and the hybrid refusal gate. Pull the "interview-defensible" framings already scattered across the `*-notes.md` files into one narrative.
 
 ## What to do at the start of next session
 
 1. Re-read `README.md` (project entry point) and this file.
-2. Skim `notes/retrieval-notes.md` — Stage 6's prompt depends on the confidence label and chunk metadata defined there.
-3. Skim `notes/embedding-notes.md` — refresh the BGE noise-floor bands; Stage 6's refusal threshold sits there.
-4. Create `notes/generation-notes.md` first (matching the pattern), then whiteboard the prompt design, then write `app/generate.py`.
-5. Wire `ask` subcommand in `cli.py`.
-6. Run the five Stage 5 questions through the full pipeline; record answers in `notes/generation-notes.md`.
+2. Skim `notes/generation-notes.md` — the Stage 6 findings (esp. Finding C) feed the WHY.md narrative and may prompt the refusal-contract refinement first.
+3. Decide: knock out Finding C (refusal-contract refinement) + the two cosmetic TODOs before or after writing WHY.md.
+4. Update README build-status table + pipeline diagram to mark Stage 6 done.
+5. Write `WHY.md`.
 
 ## Open teaching threads still to revisit
 
-- **Stage 6:** citation prompt, refusal handling, injection defense at the chunk boundary, system-vs-turn prompt division.
+- **Stage 6 Finding C** — refusal-contract refinement (queued in TODOs).
 - **Cosmetic TODOs** (above) — knock out on the next CLI touch.
 - **Future experiments queued** (in `notes/embedding-notes.md` and `notes/retrieval-notes.md`):
   - Larger BGE (`bge-base-en-v1.5`)

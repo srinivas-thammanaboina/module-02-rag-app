@@ -24,8 +24,7 @@ from app import chunking  # Stage 2
 from app import embed     # Stage 3
 from app import store     # Stage 4
 from app import retrieve  # Stage 5
-# Future imports (added stage by stage):
-# from app import generate
+from app import generate  # Stage 6
 
 
 def _not_yet(stage_name: str):
@@ -108,8 +107,9 @@ def build_parser() -> argparse.ArgumentParser:
     # --- Stage 6: ask ---
     p_ask = sub.add_parser("ask", help="(Stage 6) Full RAG: retrieve + generate with citations.")
     p_ask.add_argument("--question", required=True)
-    p_ask.add_argument("--company", default=None)
-    p_ask.set_defaults(func=_not_yet("ask"))
+    p_ask.add_argument("--company", default=None, help="Optional ticker filter, e.g. TSLA")
+    p_ask.add_argument("--k", type=int, default=None, help="Top-k chunks to ground in (default: config.top_k)")
+    p_ask.set_defaults(func=generate.run_cli)
 
     return parser
 
