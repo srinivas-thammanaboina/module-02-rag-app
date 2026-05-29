@@ -22,8 +22,10 @@ import sys
 from app import ingest    # Stage 1
 from app import chunking  # Stage 2
 from app import embed     # Stage 3
+from app import store     # Stage 4
+from app import retrieve  # Stage 5
 # Future imports (added stage by stage):
-# from app import store, retrieve, generate
+# from app import generate
 
 
 def _not_yet(stage_name: str):
@@ -66,15 +68,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_embed.set_defaults(func=embed.run_cli)
 
-    # --- Stage 4: build (full index pipeline) ---
-    p_build = sub.add_parser("build", help="(Stage 4) Run ingest+chunk+embed+store for all tickers.")
-    p_build.set_defaults(func=_not_yet("build"))
+    # --- Stage 4: build (full index from data/chunks/*.jsonl) ---
+    p_build = sub.add_parser(
+        "build",
+        help="Embed all chunks and upsert into the Chroma index.",
+    )
+    p_build.set_defaults(func=store.run_build_cli)
+
+    # --- Stage 4: store (single-ticker rebuild for iteration) ---
+    p_store = sub.add_parser(
+        "store",
+        help="Embed one ticker's chunks and upsert. For development iteration.",
+    )
+    p_store.add_argument("--ticker", required=True, help="e.g. TSLA")
+    p_store.set_defaults(func=store.run_store_cli)
+
+    # --- Stage 4: inspect (sanity check on the persisted collection) ---
+    p_inspect = sub.add_parser(
+        "inspect",
+        help="Print collection size, per-ticker counts, and a sample row.",
+    )
+    p_inspect.set_defaults(func=store.run_inspect_cli)
 
     # --- Stage 5: retrieve ---
-    p_retrieve = sub.add_parser("retrieve", help="(Stage 5) Retrieve top-k chunks for a question.")
+    p_retrieve = sub.add_parser(
+        "retrieve",
+        help="Retrieve top-k chunks for a question.",
+    )
     p_retrieve.add_argument("--question", required=True)
     p_retrieve.add_argument("--company", default=None, help="Optional ticker filter, e.g. TSLA")
-    p_retrieve.set_defaults(func=_not_yet("retrieve"))
+    p_retrieve.add_argument("--k", type=int, default=5, help="Top-k (default: 5)")
+    p_retrieve.add_argument(
+        "--compare",
+        action="store_true",
+        help="Run both filtered (uses --company) and unfiltered retrieval, side by side.",
+    )
+    p_retrieve.set_defaults(func=retrieve.run_cli)
 
     # --- Stage 6: ask ---
     p_ask = sub.add_parser("ask", help="(Stage 6) Full RAG: retrieve + generate with citations.")

@@ -29,8 +29,9 @@ Building a **citation-grounded Q&A copilot over SEC 10-K filings** (per `prompt-
 | 1 | Ingest — EDGAR client, ticker→CIK→latest 10-K, clean HTML, section split | **done** — three regex iterations, all three tickers parse cleanly |
 | 2 | Chunk — structure-aware splitter, metadata propagation | **done** — Experiment 1 (buggy) → Experiment 2 (fixed), 678 chunks total |
 | 3 | Embed — `Embedder` interface + local `bge-small` + sanity-check CLI | **done** — vectors normalized, rank ordering correct, score-compression lesson captured |
-| 4 | Store — Chroma persistence + full index build | **next** |
-| 5 | Retrieve — top-k + metadata filter | pending |
+| 4 | Store — Chroma persistence + full index build | **done** — 678 rows in `filings` collection, ticker filter verified, 6.7s build |
+| 5 | Retrieve — top-k + metadata filter + company-mismatch warning + top-1 confidence labels | **done** — five-question sanity check passed, two pressure-test mitigations verified, three findings recorded in `retrieval-notes.md` |
+| 6 | Generate — Anthropic call with citation prompt | **next** |
 | 6 | Generate — Anthropic call with citation prompt | pending |
 | 7 | `WHY.md` + `README.md` | pending |
 
