@@ -142,7 +142,7 @@ def run_cli(args) -> None:
     With one --text: print vector stats only (dim, norm, first few values).
     With two or more: treat the FIRST as a query, the rest as documents,
     and print cosine similarity (= dot product since vectors are normalized)
-    for each. This is the sanity-check experiment from chunking-notes.md.
+    for each. This is the sanity-check experiment from notes/embedding-notes.md.
     """
     embedder = get_embedder()
     texts: list[str] = args.text

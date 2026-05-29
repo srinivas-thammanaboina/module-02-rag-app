@@ -7,21 +7,21 @@ orchestrates and formats. The Retriever class is intentionally thin —
 most of the work is already in app/store.py and app/embed.py.
 
 Two pressure-test mitigations live here (full discussion in
-retrieval-notes.md):
+notes/retrieval-notes.md):
 
   1. **Company-mismatch warning.** If the question text mentions a ticker
      that isn't the one passed via --company, the CLI warns the user. The
      filter still wins — that's the contract — but the contradiction is
      made visible instead of silent.
 
-  2. **Top-1 similarity surfaced prominently.** Per embedding-notes.md,
+  2. **Top-1 similarity surfaced prominently.** Per notes/embedding-notes.md,
      BGE-small's noise floor on prose is ~0.50–0.55. The CLI labels the
      confidence band of the top result so the user can tell when the
      corpus probably doesn't contain a good answer. Stage 6's prompt
      will act on this signal; Stage 5's job is to make it visible.
 
 Pure top-k for now. MMR / cross-encoder rerank / HyDE / hybrid retrieval
-are queued as future experiments in retrieval-notes.md.
+are queued as future experiments in notes/retrieval-notes.md.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ _COMPANY_PATTERNS: dict[str, tuple[str, ...]] = {
 
 
 # Confidence bands for BGE-small on English prose. Source:
-# embedding-notes.md "Score interpretation bands". CLI-only labelling —
+# notes/embedding-notes.md "Score interpretation bands". CLI-only labelling —
 # the retriever never gates on these; that's Stage 6's job.
 def _confidence_label(top_sim: float) -> str:
     if top_sim >= 0.75:

@@ -30,7 +30,7 @@ Building a **citation-grounded Q&A copilot over SEC 10-K filings** (per `prompt-
 | 2 | Chunk — structure-aware splitter, metadata propagation | **done** — Experiment 1 (buggy) → Experiment 2 (fixed), 678 chunks total |
 | 3 | Embed — `Embedder` interface + local `bge-small` + sanity-check CLI | **done** — vectors normalized, rank ordering correct, score-compression lesson captured |
 | 4 | Store — Chroma persistence + full index build | **done** — 678 rows in `filings` collection, ticker filter verified, 6.7s build |
-| 5 | Retrieve — top-k + metadata filter + company-mismatch warning + top-1 confidence labels | **done** — five-question sanity check passed, two pressure-test mitigations verified, three findings recorded in `retrieval-notes.md` |
+| 5 | Retrieve — top-k + metadata filter + company-mismatch warning + top-1 confidence labels | **done** — five-question sanity check passed, two pressure-test mitigations verified, three findings recorded in `notes/retrieval-notes.md` |
 | 6 | Generate — Anthropic call with citation prompt | **next** |
 | 6 | Generate — Anthropic call with citation prompt | pending |
 | 7 | `WHY.md` + `README.md` | pending |
@@ -81,33 +81,39 @@ Query: "supply chain risk from foreign suppliers"
   rank 3  sim=0.5127  "the company logo and brand identity..."               (unrelated)
 ```
 
-**Key lesson captured in `embedding-notes.md`:** rank order correct, but BGE's absolute score range is compressed to ~0.45–0.90. Bands like "0.7 is relevant" do not transfer between embedders — calibrate per-model. Initial predicted bands in `embedding-notes.md` were wrong for BGE; they've been corrected with the actual run's evidence.
+**Key lesson captured in `notes/embedding-notes.md`:** rank order correct, but BGE's absolute score range is compressed to ~0.45–0.90. Bands like "0.7 is relevant" do not transfer between embedders — calibrate per-model. Initial predicted bands in `notes/embedding-notes.md` were wrong for BGE; they've been corrected with the actual run's evidence.
 
 ## Files on disk now
 
 ```
 module-02-rag-app/
 ├── .env.example
-├── .env                      ← user-filled (gitignored)
+├── .env                       ← user-filled (gitignored)
 ├── .gitignore
 ├── requirements.txt
-├── prompt-instructions.md
-├── SESSION-STATE.md          ← this file
-├── ingest-observation.md     ← Stage 1 diagnostic playbook (3-iteration regex story)
-├── chunking-notes.md         ← Stage 2 design + Experiment 1/2 + implementation decisions
-├── embedding-notes.md        ← Stage 3 intuition + BGE quirks + score-compression lesson
-├── cli.py                    ← ingest / chunk / embed wired up; build/retrieve/ask pending
+├── README.md                  ← project entry point + CLI reference + stage status
+├── SESSION-STATE.md           ← this file
+├── prompt-instructions.md     ← original project spec
+├── cli.py                     ← Stages 1–5 wired (ingest / chunk / embed / build·store·inspect / retrieve); ask pending
+├── notes/                     ← stage-by-stage design notes (moved into folder at end of Stage 5 session)
+│   ├── ingest-observation.md  ← Stage 1: 3-iteration regex diagnostic story
+│   ├── chunking-notes.md      ← Stage 2: design + Experiment 1/2 + implementation decisions
+│   ├── embedding-notes.md     ← Stage 3: intuition + BGE quirks + score-compression lesson
+│   ├── store-chroma-notes.md  ← Stage 4: numpy-vs-vectorDB framing + design decisions
+│   └── retrieval-notes.md     ← Stage 5: pressure tests + 5-question results + Experiment 7 queued
 ├── app/
 │   ├── __init__.py
-│   ├── config.py             ← chunk params aligned to Experiment 2 (1000/150/200)
-│   ├── ingest.py             ← Stage 1: three-stacked-signal header regex
-│   ├── chunking.py           ← Stage 2: RecursiveChunker (absorption guard + budget reseed)
-│   └── embed.py              ← Stage 3: Embedder ABC + LocalSentenceTransformerEmbedder
-└── data/
-    ├── raw/                  ← cached 10-K HTML for TSLA / AAPL / NVDA
-    ├── clean/                ← parsed section JSON for all three
-    ├── chunks/               ← Experiment 2 JSONL output for all three (678 chunks total)
-    └── chroma/.gitkeep       ← reserved for Stage 4
+│   ├── config.py              ← central configuration (paths, tickers, model names, knobs)
+│   ├── ingest.py              ← Stage 1: EDGAR client + section-aware parser
+│   ├── chunking.py            ← Stage 2: RecursiveChunker (absorption guard + budget reseed)
+│   ├── embed.py               ← Stage 3: Embedder ABC + LocalSentenceTransformerEmbedder
+│   ├── store.py               ← Stage 4: VectorStore ABC + ChromaVectorStore
+│   └── retrieve.py            ← Stage 5: Retriever + company-mismatch warning + confidence labels
+└── data/                      ← gitignored build artifacts
+    ├── raw/                   ← cached 10-K HTML for TSLA / AAPL / NVDA
+    ├── clean/                 ← parsed section JSON for all three
+    ├── chunks/                ← 678-chunk JSONL (TSLA 251, AAPL 149, NVDA 278)
+    └── chroma/                ← persisted vector store (8.3 MB on disk)
 ```
 
 ## Carry-forward TODOs (small, deliberately deferred)
@@ -115,50 +121,48 @@ module-02-rag-app/
 1. **`get_sentence_embedding_dimension` FutureWarning** in `app/embed.py:89`. The method was renamed to `get_embedding_dimension` in a recent sentence-transformers release; one-line fix. Cosmetic only — no functional impact.
 2. **CLI tail-preview cropping** in `app/chunking.py:_print_sample_chunk`. The tail slice doesn't snap to a word boundary, so sample chunks display previews that *appear* to start mid-word. The chunk content is correct; only the display is ugly. Will fix on next CLI touch.
 
-## Stage 4 plan (next session)
+## Stage 6 plan (next session)
 
-**What:** persist the 678 chunks (plus their embeddings) into a Chroma collection at `data/chroma/`, with metadata travelling per row.
+**What:** wire Claude Opus 4.6 into a `generate` subcommand that takes a question, runs Stage 5 retrieval, formats the chunks into a grounded prompt, and returns an answer with inline `[chunk-id]` citations.
 
-**Why now:** retrieval and generation both need a single addressable index of chunks. Doing the embedding + storage as one stage means the corpus can be rebuilt from `data/chunks/*.jsonl` with one CLI invocation.
+**Why it matters:** Stage 6 is where the prompt becomes the whole game. Every claim in the answer must be backed by a chunk from retrieval, every chunk must be cite-able, and when retrieval is weak (top-1 < 0.58 per `notes/embedding-notes.md` bands) the model must refuse rather than fabricate. The architecture work is small; the prompt design is the lesson.
 
 **Anticipated structure:**
 
-- `app/store.py` — new module wrapping a Chroma client. Public surface:
-  - `VectorStore.upsert_chunks(chunks: list[dict], embedder: Embedder)` — embed in batches, write to Chroma
-  - `VectorStore.query(query_text: str, k: int, where: dict|None)` — top-k with optional metadata filter (used by Stage 5)
-- `cli.py` — add two subcommands:
-  - `python cli.py build` — full pipeline: read all `data/chunks/*.jsonl`, embed, upsert. The button to rebuild the index from scratch.
-  - `python cli.py store --ticker TSLA` — single-ticker version for development
-- Chroma collection name: `filings` (single collection, ticker as a metadata field — easier than per-ticker collections for cross-company queries)
+- `app/generate.py` — new module wrapping the Anthropic client. Public surface:
+  - `Generator.answer(question, chunks, top_sim) -> dict` — takes Stage 5 output + the confidence signal, returns a structured response (answer text, citations, refused flag)
+- `cli.py` — wire `python cli.py ask --question "..." [--company TSLA]` to combine Stage 5 + Stage 6
+- `notes/generation-notes.md` — new design notes following the established pattern
 
-**What I'll teach during Stage 4:**
+**What I'll teach during Stage 6:**
 
-- What a Chroma row actually contains: `(id, document_text, embedding_vector, metadata_dict)`. The vector is the search key; the document text is what gets returned; metadata is what enables filtering.
-- Metadata filtering as the cheapest accuracy win — we'll prove this in Stage 5 by comparing "top-5 across all companies" vs "top-5 within `where={'ticker': 'TSLA'}`."
-- Why `upsert` (not `add`) — same chunk ID overwriting an existing row makes re-runs idempotent. No duplicate rows on iteration.
-- Batch sizing for embedding (CPU saturation point vs memory headroom).
-- Why a *single* collection with metadata beats one collection per company (collection switching is more code; metadata filtering scales to N tickers for free).
+- **The citation contract** — how to make the model emit `[chunk-id]` inline, and how to verify it
+- **Refusing cleanly when retrieval is weak** — using Stage 5's top-1 confidence label to decide when to refuse rather than fabricate
+- **Prompt-injection defense at the chunk boundary** — filings contain arbitrary text; the prompt must format chunks so they can't escape their data role
+- **System prompt vs per-turn prompt division**
+- **Output structure that the user can trust and verify**
 
 ## What to do at the start of next session
 
-1. Re-read this file.
-2. Skim `embedding-notes.md` to refresh the Stage 3 lessons (BGE prefix, score compression, interface seam).
-3. Skim `chunking-notes.md` to refresh the Stage 2 implementation decisions (chunk ID format, JSONL output, char-offset best-effort).
-4. Write `app/store.py` and wire `build` + `store` subcommands in `cli.py`.
-5. Run `python cli.py build` to populate Chroma; print collection size and a sample row.
-6. Create `vectorstore-notes.md` (or `chroma-notes.md`) following the same format as `chunking-notes.md` and `embedding-notes.md` — design, decisions, experiments, lessons.
+1. Re-read `README.md` (project entry point) and this file.
+2. Skim `notes/retrieval-notes.md` — Stage 6's prompt depends on the confidence label and chunk metadata defined there.
+3. Skim `notes/embedding-notes.md` — refresh the BGE noise-floor bands; Stage 6's refusal threshold sits there.
+4. Create `notes/generation-notes.md` first (matching the pattern), then whiteboard the prompt design, then write `app/generate.py`.
+5. Wire `ask` subcommand in `cli.py`.
+6. Run the five Stage 5 questions through the full pipeline; record answers in `notes/generation-notes.md`.
 
 ## Open teaching threads still to revisit
 
-- **Stage 5:** developing intuition for top-k retrieval; impact of `--company` metadata filter; reading similarity scores in context of the calibration bands captured in `embedding-notes.md`.
-- **Stage 6:** the citation prompt is the whole game; how to make the model refuse when retrieved chunks don't actually contain the answer; surfacing citations the user can verify by clicking the `source_url`.
-- **Future experiments queued** (in `embedding-notes.md`):
+- **Stage 6:** citation prompt, refusal handling, injection defense at the chunk boundary, system-vs-turn prompt division.
+- **Cosmetic TODOs** (above) — knock out on the next CLI touch.
+- **Future experiments queued** (in `notes/embedding-notes.md` and `notes/retrieval-notes.md`):
   - Larger BGE (`bge-base-en-v1.5`)
-  - Domain-tuned embedder (e.g. `voyage-finance-2`)
+  - Domain-tuned embedder (`voyage-finance-2`)
   - Hybrid retrieval (dense + BM25)
   - Cross-encoder re-rank
   - HyDE
   - Per-section context prefix on chunks before embedding
+  - Cross-company round-robin retrieval (Experiment 7 — motivated by Stage 5 Finding 2)
 
 ## Curriculum context (do not lose)
 

@@ -46,7 +46,7 @@ class Config:
     sec_user_agent: str = ""  # filled in from env below
 
     # --- Chunk ---
-    # Recursive/structure-aware chunker config (Experiment 1 in chunking-notes.md).
+    # Recursive/structure-aware chunker config (Experiment 1 in notes/chunking-notes.md).
     # Tune these and observe the effect on retrieval — that's the whole point
     # of having them here.
     chunk_size: int = 1000       # max chars per chunk (budget, not target)

@@ -7,7 +7,7 @@ result as JSONL to `data/chunks/<TICKER>.jsonl`. Each chunk carries the full
 metadata trail (ticker, section, source_url, etc.) so downstream stages can
 cite back to the source.
 
-See `chunking-notes.md` for the design rationale and Experiment 1's parameters.
+See `notes/chunking-notes.md` for the design rationale and Experiment 1's parameters.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from app.config import config
 # semantically meaningful first. NOTE: our cleaned 10-K text uses single
 # newlines as paragraph/heading boundaries (BS4's get_text("\n") joins
 # block-level elements with a single \n, not \n\n) — so "\n" is the
-# paragraph separator for us. See chunking-notes.md for the data observation.
+# paragraph separator for us. See notes/chunking-notes.md for the data observation.
 SEPARATORS: list[str] = ["\n", ". ", " "]
 
 

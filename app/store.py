@@ -6,7 +6,7 @@ has a single addressable index to query. Wraps Chroma behind a VectorStore
 ABC for the same reason we wrapped the embedder — to make the backend swap
 a one-file change.
 
-Design choices (full rationale in store-chroma-notes.md):
+Design choices (full rationale in notes/store-chroma-notes.md):
 
   1. Single collection named "filings" with `ticker` as a metadata field.
      One collection scales to N tickers for free; per-ticker collections
@@ -41,7 +41,7 @@ from app.embed import Embedder, get_embedder
 
 
 # Collection name. Single collection for all tickers, with `ticker` as
-# a metadata field. See "Chosen design" in store-chroma-notes.md for why.
+# a metadata field. See "Chosen design" in notes/store-chroma-notes.md for why.
 COLLECTION_NAME = "filings"
 
 # Metadata fields propagated into Chroma. Listed explicitly so the contract
@@ -319,7 +319,7 @@ def run_store_cli(args) -> None:
 def run_inspect_cli(args) -> None:
     """`python cli.py inspect` — print collection stats and a sample row.
 
-    Implements the three sanity-check properties from store-chroma-notes.md:
+    Implements the three sanity-check properties from notes/store-chroma-notes.md:
       1. Total row count matches the chunker's output.
       2. Per-ticker filter counts match per-file chunk counts.
       3. A sample row is well-formed (embedding, document, metadata together).
