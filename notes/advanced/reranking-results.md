@@ -1,0 +1,152 @@
+# Reranking experiment — results & diagnosis (the instructive failure)
+
+**Takeaway:** Reranking the naive dense results with a cross-encoder (`ms-marco-MiniLM-L-6-v2`, pool 50) **regressed** retrieval on our corpus: overall recall@5 dropped 0.79 → 0.63. Diagnosing *why* split the regression into two distinct causes — one a **genuine model failure**, one a **flaw in our evaluation itself**. This is the most useful result of the advanced stage so far: it's a concrete case of why production RAG "upgrades" backfire, and why eval design is as hard as the system.
+
+Setup (pool size N=50) and the depth sweep that justified it: `reranking-pool-sweep.md`.
+
+## The result — `eval --rerank` (cross-encoder, pool=50)
+
+```
+    Q  category        hit@5  rec@5  rec@10   MRR  question
+    1  semantic            1   0.40    0.60  1.00  What are the main risks Tesla faces?  ← misses in top-5: 0077,0084,0149
+    2  semantic            1   1.00    1.00  1.00  What does Apple say about supply chain concent
+    3  semantic            1   0.33    0.67  0.50  How does NVIDIA describe its competitive posit  ← misses: 0000,0005
+    4  semantic            1   0.50    1.00  1.00  What does Tesla say about employee retention a  ← misses: 0113,0115
+    5  semantic            1   0.67    0.67  1.00  What macroeconomic factors affect Apple's resu  ← misses: 0025
+    6  semantic            1   0.67    0.67  0.50  What are NVIDIA's risks around supply and manu  ← misses: 0102
+    7  semantic            1   0.50    0.50  1.00  How does Tesla generate revenue beyond vehicle  ← misses: 0012,0021
+    8  exact-term          1   1.00    1.00  1.00  What is NVIDIA NIM?
+    9  exact-term          1   1.00    1.00  1.00  What does NVIDIA say about CUDA?
+   10  exact-term          1   1.00    1.00  1.00  What is Tesla's Supercharger network?
+   11  exact-term          1   0.50    1.00  1.00  What does Tesla say about Robotaxi?  ← misses: 0004,0179
+   12  exact-term          0   0.00    0.50  0.14  Does Apple pay a dividend?  ← misses: 0115,0116
+   13  cross-company       1   0.50    0.50  1.00  How do Tesla and NVIDIA describe their AI inve  ← misses: 0000,0183,0197
+   14  cross-company       1   0.50    0.75  1.00  Compare supply chain risk for Apple and Tesla.  ← misses: 0084,0114
+   15  cross-company       1   0.50    0.50  1.00  How do Tesla and Apple describe regulatory/leg  ← misses: 0086,0045
+   16  control-negative     —      —       —     —  What is the CEO's home address?
+   17  semantic            1   1.00    1.00  0.33  What are NVIDIA's gaming segment products?
+
+  overall          hit@5=0.94  recall@5=0.63  recall@10=0.77  MRR=0.84   (n=16)
+  cross-company    hit@5=1.00  recall@5=0.50  recall@10=0.58  MRR=1.00   (n=3)
+  exact-term       hit@5=0.80  recall@5=0.70  recall@10=0.90  MRR=0.83   (n=5)
+  semantic         hit@5=1.00  recall@5=0.63  recall@10=0.76  MRR=0.79   (n=8)
+```
+
+### Baseline vs reranked
+
+| | baseline | reranked (minilm) | Δ |
+|---|---|---|---|
+| overall recall@5 | 0.79 | **0.63** | **−0.16** |
+| overall MRR | 0.86 | 0.84 | −0.02 |
+| overall hit@5 | 1.00 | 0.94 | −0.06 |
+| semantic recall@5 | 0.83 | 0.63 | −0.20 |
+| exact-term recall@5 | 0.78 | 0.70 | −0.08 |
+| cross-company recall@5 | 0.67 | 0.50 | −0.17 |
+
+Every category dropped. A few precise questions improved (Q9 CUDA 0.67→1.00); broad ones cratered (Q1 1.00→0.40); the dividend question collapsed (Q12 0.50→**0.00**, hit@5=0).
+
+## Diagnosis — look at the actual chunks (Rule 4)
+
+Pulled baseline vs reranked top-5 for one suspected-spurious case (Q1) and one suspected-genuine case (Q12):
+
+```
+############ Q1: What are the main risks Tesla faces?  (labeled: 0077,0084,0106,0114,0149)
+  --- BASELINE dense top-5 ---   (all 5 are labeled → recall 1.00)
+   1. ✓KEY 0084 cos=0.772 | future growth and success dependent upon demand for our [vehicles]
+   2. ✓KEY 0114 cos=0.733 | If we are not successful in managing these risks...
+   3. ✓KEY 0077 cos=0.720 | If we experience production delays or inaccurately forecast demand...
+   4. ✓KEY 0149 cos=0.718 | loss of previously available tax credits and carbon offset...
+   5. ✓KEY 0106 cos=0.711 | statements and actions of Tesla and its management...
+  --- RERANKED top-5 ---   (only 2 labeled → recall 0.40)
+   1. ✓KEY 0114 cos=0.733 rr=1.56  | managing these risks...
+   2. ✓KEY 0106 cos=0.711 rr=-0.54 | statements and actions of management...
+   3.      0113 cos=0.678 rr=-1.18 | The loss of the services of any of our key employees...
+   4.      0126 cos=0.688 rr=-2.71 | unions have filed unfair labor practice charges against us...
+   5.      0068 cos=0.654 rr=-2.75 | if our suppliers do not accurately forecast...
+
+############ Q12: Does Apple pay a dividend?  (labeled: 0115,0116)
+  --- BASELINE dense top-5 ---   (0116 at rank 4 → recall 0.50)
+   1.      0138 cos=0.765 | deemed repatriation tax payable...
+   2.      0004 cos=0.675 | payment services, including Apple Card...
+   3.      0058 cos=0.667 | notified that it may be infringing...
+   4. ✓KEY 0116 cos=0.662 | expectations that its cash dividend will continue...
+   5.      0019 cos=0.653 | approximately 166,000 full-time employees...
+  --- RERANKED top-5 ---   (0116 pushed OUT → recall 0.00)
+   1.      0138 cos=0.765 rr=4.41  | deemed repatriation tax payable...   ← scored WAY up
+   2.      0004 cos=0.675 rr=-4.96 | Apple Card...
+   3.      0019 cos=0.653 rr=-5.35 | full-time employees...
+   4.      0021 cos=0.645 rr=-6.97 | Annual Reports on Form 10-K...
+   5.      0126 cos=0.619 rr=-7.06 | ...
+```
+
+**Q1 — mostly SPURIOUS.** The three "new" chunks the reranker added (`0113` loss of key employees, `0126` labor-union charges, `0068` supplier forecasting) are **all genuine Tesla risk chunks** — valid answers we simply didn't label. So recall "dropping" to 0.40 is largely our sparse labels failing to credit good chunks, not real damage. (Small real component: it bumped the headline demand-risk `0084` for a niche labor one.)
+
+**Q12 — GENUINELY worse.** The cross-encoder scored the repatriation-**tax** chunk `0138` at **+4.41** (wildly confident) and shoved the real dividend chunk `0116` out of the top 5 entirely. It latched onto the surface word "dividend" appearing in a *tax* context and mis-judged the actual answer — the exact opposite of the literal-term win we hoped for. Real model failure.
+
+## The two lessons
+
+### Lesson 1 (eval engineering) — a limited-response golden set can't fairly grade a *different* retriever
+
+This was the user's doubt at labeling time, now proven: *"how can the eval be right if we only marked a few matching chunks — what about other valid ones we didn't cover?"* Exactly. Our golden set was seeded from the **baseline** retriever and, for broad questions, labels only ~5 of perhaps ~30 valid chunks. So when a new retriever returns *different but valid* chunks, recall drops **spuriously**. The aggregate −0.16 **overstates** the real regression.
+
+Why this matters beyond our toy: **this is a top reason production RAG evals mislead teams.** An offline metric says a change "hurt recall," people revert a genuinely-fine change — because the labels were incomplete, not the retriever. Mitigations in the real world: label *exhaustively* per query (expensive), use *pooled* judgments across multiple systems (the TREC method — judge the union of what several retrievers return), or use an **LLM judge** that scores relevance of *whatever* was returned rather than checking against a fixed key (Module 05). Our small fixed-key golden set is fine for *precise* questions and unreliable for *broad* ones.
+
+### Lesson 2 (model fit) — "reranking is the highest-ROI upgrade" is corpus- and model-dependent
+
+Even setting label-bias aside and looking only at *precise* questions (where our labels genuinely are the full answer): Q12 0.50→**0.00** and Q3 0.67→0.33 are real regressions; Q9 0.67→1.00 is a real win; Q8/Q10 flat. Net: `ms-marco-MiniLM-L-6-v2` is a **poor domain fit** — it was trained on short web queries → short web passages, not long 10-K prose. The advanced-RAG playbook's "add reranking first, it's the biggest win" did **not** hold here. Measure, don't assume.
+
+## Why this is the real deal
+
+Both failure modes — incomplete eval labels, and a reranker that's the wrong fit for the domain — are exactly the things that silently break real RAG systems in production. Catching them on a 3-filing toy, with the diagnosis written down, is the point of the whole exercise.
+
+## Second model — `bge-reranker-base` (the audit that broke the eval open)
+
+Swapped to `BAAI/bge-reranker-base` (`eval --rerank --reranker bge`) expecting a better domain fit. It was **dramatically worse**:
+
+```
+  overall          hit@5=0.44  recall@5=0.17  recall@10=0.36  MRR=0.20   (n=16)
+  cross-company    hit@5=0.67  recall@5=0.14  recall@10=0.39  MRR=0.21   (n=3)
+  exact-term       hit@5=0.60  recall@5=0.35  recall@10=0.47  MRR=0.33   (n=5)
+  semantic         hit@5=0.25  recall@5=0.07  recall@10=0.28  MRR=0.11   (n=8)
+```
+
+| | baseline | minilm | bge |
+|---|---|---|---|
+| overall recall@5 | 0.79 | 0.63 | **0.17** |
+| overall MRR | 0.86 | 0.84 | **0.20** |
+
+`recall@5 = 0.17` from a SOTA reranker is **near-random** — a red flag for a usage bug, not a model verdict. We did NOT accept it; we verified.
+
+### Verification chain (don't trust a surprising number)
+
+1. **Model loads & works on clean text.** Isolated sanity pair: the dividend sentence scored `0.539`, irrelevant `0.000`. No "newly initialized" warning → head loaded fine.
+2. **Not a batching artifact.** Chunk `0116` scored `0.0014` identically alone, in a 2-pair batch, and in the 50-pair batch. Store text == jsonl text. Deterministic.
+3. **So the score is *real* — bge genuinely rates `0116` near-zero for "Does Apple pay a dividend?"** despite `0116` opening with *"expectations that its cash dividend will continue..."* — which scored `0.54` as a clean standalone sentence.
+
+### Why the same text scores 0.54 standalone but 0.0014 in the chunk
+
+The chunk reveals it (`data/chunks/AAPL.jsonl`):
+- `0116` **starts mid-sentence** ("expectations that...") — a chunk-boundary cut — and its actual topic is **stock-price *risk*** ("If the Company fails to meet expectations... the price of the Company's stock may decline significantly"). Dividends are one item in a risk list.
+- A cross-encoder reads the chunk *holistically* and correctly judges it as a volatility-risk chunk, not a dividend-policy answer. The bi-encoder ranked it #4 purely on the term "dividend."
+
+**bge isn't wrong about `0116` — our label is dubious.**
+
+## What the reranking detour actually exposed (it audited our eval)
+
+1. **A poorly-grounded question.** The corpus has *no* clean "Apple pays a dividend" answer — every "dividend" mention is in a risk or tax frame (`0115`/`0116` risk, `0138` tax). Q12 is closer to a hidden negative control. Its label `{0115,0116}` was charitable term-matching.
+2. **A chunking flaw.** `0116` starts mid-sentence and mixes topics — a chunk-quality problem that makes its "relevant" label shaky and confuses a holistic reranker.
+3. **Label selection bias** (minilm round): broad questions credit only the cosine-retrieved chunks.
+
+## The killer insight
+
+Why did the **stronger** model (bge, 0.17) score *worse* than the **weaker** one (minilm, 0.63)? Because bge diverges from cosine ranking *more confidently* — and **our golden set is biased toward cosine-retrieved chunks** (seeded from the bi-encoder). So the more a reranker improves on cosine, the more it disagrees with our labels, and the lower it scores. **A stronger reranker scoring lower is evidence the *eval* is biased, not that the model is bad.** This is precisely the trap that makes production teams revert good changes.
+
+## Conclusion → fix the eval before judging patterns
+
+We **cannot trust this eval to adjudicate retrieval patterns yet**. Chasing minilm vs bge vs hybrid on a cosine-biased, partially-mislabeled golden set measures the eval's flaws, not the patterns. Reranking is **parked, not concluded** — we can't fairly say whether it helps until the eval is sound.
+
+**Next: an eval audit** (see SESSION-STATE):
+1. Reclassify Q12 (no real answer in corpus) — control or drop.
+2. Broad-question labels: expand to the full valid set, or judge precise-only, or move to LLM-as-judge.
+3. Note/triage the `0116`-style mid-sentence chunk-boundary issue.
+4. Then resume reranking/hybrid/decomposition on an eval we can trust. The strongest fix is an **LLM-as-judge** eval (score whatever is returned, no fixed key) — kills the cosine-seeding bias and bridges to Module 05.

@@ -42,7 +42,28 @@ The naive 7-stage pipeline is complete. We've entered the **advanced-RAG stage**
 
 **Sequence:** (1) eval harness [in progress] → (2) reranking → (3) hybrid (BM25+RRF) → (4) decomposition / round-robin (Experiment 7). Each measured against the golden set.
 
-**Eval harness status:** design captured in `notes/advanced/eval-notes.md`. Metrics: **recall@k + MRR**, retrieval-only (not faithfulness — that's Module 05). Golden set (~15–20 Qs across semantic / exact-term / cross-company categories) is being **labeled collaboratively** with the user. Then build `app/eval.py` + `python cli.py eval` (reads any retriever, so A/B = run eval against two configs). Not yet built — labeling first, then notes filled, then code on explicit go.
+**Eval harness status:** design captured in `notes/advanced/eval-notes.md`. Metrics: **recall@k + MRR**, retrieval-only (not faithfulness — that's Module 05). Baseline run done (recall@5=0.79, MRR=0.86). Plain-terms metric explainer for the user in `notes/advanced/reading-eval-metrics.md` (Q3 worked fully; Q4/Q12/Q13/Q7/Q16 queued as worked examples — currently walking through these one at a time with the user before resuming the build).
+
+### ⏸ RESUME HERE (reranking PARKED; next = eval audit/repair)
+
+**Done so far in the advanced stage:**
+- Golden set: 17 Qs labeled → `eval/golden.jsonl`. Eval harness: `app/eval.py` + `cli.py eval` (recall@5 hit+fraction, recall@depth, MRR, per-category, control). Baseline **recall@5=0.79, MRR=0.86**.
+- Depth sweep: **recall@50 = 1.00** → problem is *ranking* not retrieval; chose pool N=50. (`reranking-pool-sweep.md`)
+- Reranking built: `app/rerank.py` (`Reranker` + `RerankingRetriever`, pool=50), eval flags `--rerank`/`--candidates`/`--reranker {minilm,bge}`.
+- **Reranking measured — both models REGRESSED:** minilm 0.79→0.63, bge 0.79→**0.17**. Diagnosed thoroughly (`reranking-results.md`).
+
+**KEY OUTCOME — the eval is not yet trustworthy.** The reranking runs acted as an adversarial audit and exposed: (1) Q12 ("does Apple pay a dividend?") has **no real answer chunk** in the corpus — all "dividend" mentions are risk/tax-framed; its labels were charitable term-matching. (2) Chunk `0116` is **cut mid-sentence** and is topically a stock-volatility-risk chunk — a chunking flaw. (3) **Label selection bias**: golden set was seeded from the cosine bi-encoder, so it's biased toward cosine-retrieved chunks — a stronger reranker that diverges from cosine scores *lower*, which is why bge (better model) scored worse. **A reranker improvement is indistinguishable from eval bias on this golden set.** Reranking is **parked, not concluded.**
+
+**THE VERY NEXT STEP — eval audit/repair (whiteboard-first):**
+1. **Reclassify Q12** — no real answer in corpus → make it a control or drop it.
+2. **Broad-question labels** (Q1/Q5/Q6 etc.) — expand `relevant_ids` to the full valid set, OR mark them recall-unreliable, OR judge precise-only.
+3. **Chunking triage** — note the `0116`-style mid-sentence boundary issue (revisit chunker? or just re-label).
+4. **Consider LLM-as-judge eval** — score whatever is returned for relevance (no fixed key). Kills the cosine-seeding bias; bridges to Module 05. Likely the real fix.
+5. **THEN** resume reranking/hybrid/decomposition on an eval we can trust.
+
+**Advanced notes:** `eval-notes.md` (harness + findings 1–4), `reading-eval-metrics.md` (metric explainer), `reranking-pool-sweep.md` (depth sweep), `reranking-results.md` (both reranker runs + the eval-audit findings + the "stronger model scores worse = biased eval" insight).
+
+**Note:** curriculum reframe (interview/career → deep-learning focus) is **done + validated clean** across both repos; `06-career/` → `06-ai-native/`.
 
 ## Stage 1 result snapshot (cleaned section sizes)
 

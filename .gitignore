@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+
+# Local data — we cache EDGAR downloads + Chroma DB here.
+# Keep the directory structure under data/ but don't commit content.
+data/raw/*
+data/clean/*
+data/chroma/*
+!data/raw/.gitkeep
+!data/clean/.gitkeep
+!data/chroma/.gitkeep

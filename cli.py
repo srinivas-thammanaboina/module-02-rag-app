@@ -25,6 +25,7 @@ from app import embed     # Stage 3
 from app import store     # Stage 4
 from app import retrieve  # Stage 5
 from app import generate  # Stage 6
+from app import eval as evaluation  # Advanced stage: retrieval eval harness
 
 
 def _not_yet(stage_name: str):
@@ -110,6 +111,35 @@ def build_parser() -> argparse.ArgumentParser:
     p_ask.add_argument("--company", default=None, help="Optional ticker filter, e.g. TSLA")
     p_ask.add_argument("--k", type=int, default=None, help="Top-k chunks to ground in (default: config.top_k)")
     p_ask.set_defaults(func=generate.run_cli)
+
+    # --- Advanced stage: eval (retrieval quality vs golden set) ---
+    p_eval = sub.add_parser(
+        "eval",
+        help="Score retrieval (recall@k + MRR) against eval/golden.jsonl.",
+    )
+    p_eval.add_argument(
+        "--depth",
+        type=int,
+        default=None,
+        help="Retrieval pool depth (default 10). recall@depth = the ceiling a reranker on this pool could reach.",
+    )
+    p_eval.add_argument(
+        "--rerank",
+        action="store_true",
+        help="Wrap the dense retriever in the cross-encoder reranker (retrieve wide -> rerank narrow).",
+    )
+    p_eval.add_argument(
+        "--candidates",
+        type=int,
+        default=None,
+        help="Reranker candidate pool size (default 50). Only used with --rerank.",
+    )
+    p_eval.add_argument(
+        "--reranker",
+        default="minilm",
+        help="Cross-encoder for --rerank: 'minilm' (default) or 'bge', or a full model name.",
+    )
+    p_eval.set_defaults(func=evaluation.run_cli)
 
     return parser
 
