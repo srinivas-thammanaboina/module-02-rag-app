@@ -76,7 +76,7 @@ The bands (BGE-small, from `embedding-notes.md` — and **only** valid for that 
 
 When the model refuses (either hard-gated or prompt-decided), the response is a fixed, honest sentence — *"The retrieved filing excerpts do not contain enough information to answer this question."* — never a hedge, never a guess, never a partial fabrication. `refused: True` in the return dict. The CLI prints the top-1 sim and band next to the refusal so the user sees *why*.
 
-**The interview-defensible point:** a refusal threshold is not a magic number you guess. It's calibrated to a specific (embedder, corpus) pair (`embedding-notes.md`, Finding 5). Ours is 0.52/0.58 for `bge-small-en-v1.5`. Swap the embedder and you re-derive both numbers against the new model's noise floor — or the gate silently misfires. The threshold lives in `config` so the coupling is one edit, and `generate.py` carries a comment saying so.
+**The first-principles point:** a refusal threshold is not a magic number you guess. It's calibrated to a specific (embedder, corpus) pair (`embedding-notes.md`, Finding 5). Ours is 0.52/0.58 for `bge-small-en-v1.5`. Swap the embedder and you re-derive both numbers against the new model's noise floor — or the gate silently misfires. The threshold lives in `config` so the coupling is one edit, and `generate.py` carries a comment saying so.
 
 ---
 
@@ -233,7 +233,7 @@ This is the most instructive result of the run, on two axes:
    compare. Faithful generation on top of a known-broken retrieval; the fix is upstream
    (Experiment 7, round-robin retrieval), not in the prompt.
 
-2. **It exposed a flaw in the refusal contract (now a queued fix — see "Finding C").** The
+2. **It exposed a flaw in the refusal contract (RESOLVED — see "Finding C").** The
    model led with the exact refusal sentence and *then* gave a partial answer. That's
    self-contradictory ("not enough information…" followed by information). My `refused`
    flag (exact-match) correctly returns False — it did answer — so it printed as ANSWER,
@@ -285,14 +285,38 @@ That second failure mode is caught only by the model reading the question/chunk 
 which is exactly what grounding-to-the-question (system rule 1) buys us. The CLI's
 company-mismatch warning is the human-facing half of the same guard.
 
-**Finding C — The exact-match refusal flag is too brittle for partial answers (Q3).** The
-model can lead with the refusal sentence and then partially answer. Exact-match returns
-False (correctly — it did answer), so the flag is technically right, but the *prose* is
-self-contradictory. **Queued refinement:** tighten system rule 3 so the exact refusal
-sentence is reserved for *total* refusal; when the chunks partially answer (e.g. only one
-of two named companies), the model should answer what it can and state the gap in its own
-words — never open with the canned refusal line and then contradict it. Small prompt edit,
-deferred so this run's results stand as the "before" evidence.
+**Finding C — Refusal in RAG is three-state, not binary (RESOLVED).** The original
+contract had two states (answer / refuse). Q3 exposed a third: **partial** — the chunks
+support *some* of the question but not all. With no slot for it, the model patched the gap
+itself by emitting the canned refusal sentence AND a partial answer — self-contradictory
+prose ("not enough information…" followed by information).
+
+The fix: system rule 3 was rewritten into three keyed branches —
+(a) all parts supported → answer fully; (b) some parts supported → answer them with
+citations, then state the gap in the model's OWN words, never the canned sentence;
+(c) no part supported → exact refusal sentence only. The crucial precision is that the
+branch is chosen by *"do the chunks answer the part asked?"*, NOT *"is there related
+content?"* — clause (c) explicitly covers "related topic present but specific fact absent."
+
+**Before → after, verified on a re-run (`claude-opus-4-8`):**
+
+```
+Q3  before: led with REFUSAL_TEXT, then answered NVIDIA (contradiction), 2 cites
+Q3  after : "...can only address NVIDIA", grounded NVIDIA answer + explicit Tesla gap,
+            5 cites, refused=False, audit clean. No canned sentence. (clause b)
+Q5  before: clean refusal (REFUSAL_TEXT)            ← the behavior we had to NOT break
+Q5  after : clean refusal (REFUSAL_TEXT), refused=True. Did NOT regress into
+            "Musk is the CEO but no address given." (clause c carve-out held)
+```
+
+Two sub-lessons: (1) prompt wording is the control surface — a looser rule ("answer
+whatever's relevant") would have regressed Q5 into a partial; the carve-out in (c) bought
+the difference. (2) No code beyond the prompt string changed: the exact-match `refused`
+flag stays correct by construction — (c) emits the verbatim sentence (refused=True, Q5),
+(b) produces a real answer that can't match it (refused=False, Q3). We deliberately did NOT
+add a three-way `partial` flag — it can't be regex-detected reliably, and the gap statement
+lives honestly in the prose. Promoting `partial` to a first-class signal (model emits a
+structured tag) is a queued follow-up, not smuggled in here.
 
 **Finding D — The model cites only what it uses, not everything it's handed (Q2).** Given
 5 chunks it cited 2. Good: citations track the claims actually made, not the size of the

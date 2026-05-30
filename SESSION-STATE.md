@@ -6,7 +6,7 @@
 
 Building a **citation-grounded Q&A copilot over SEC 10-K filings** (per `prompt-instructions.md`). Sequential, stage-by-stage build with a pause for review after each stage.
 
-**Stages 1 → 6 are complete.** Stage 7 (WHY.md + README polish) is next.
+**Stages 1 → 7 are complete.** The pipeline is feature-complete end to end (ingest → chunk → embed → store → retrieve → generate), with `WHY.md` design rationale written and the README polished. Remaining work is optional experiments + small TODOs, not core build.
 
 ## Confirmed decisions (durable)
 
@@ -32,7 +32,17 @@ Building a **citation-grounded Q&A copilot over SEC 10-K filings** (per `prompt-
 | 4 | Store — Chroma persistence + full index build | **done** — 678 rows in `filings` collection, ticker filter verified, 6.7s build |
 | 5 | Retrieve — top-k + metadata filter + company-mismatch warning + top-1 confidence labels | **done** — five-question sanity check passed, two pressure-test mitigations verified, three findings recorded in `notes/retrieval-notes.md` |
 | 6 | Generate — Anthropic call with citation prompt + hybrid refusal + citation audit | **done** — 5-question run; 0 hallucinated citations; Q4/Q5 refusals; findings in `notes/generation-notes.md` |
-| 7 | `WHY.md` + `README.md` | **next** |
+| 7 | `WHY.md` + `README.md` | **done** — cross-cutting design rationale (5 principles + decision log + eval-gap + experiment queue, with woven self-test Q&A); README build-status/diagram/layout updated |
+
+## Advanced stage (in progress — post Stage 7)
+
+The naive 7-stage pipeline is complete. We've entered the **advanced-RAG stage**, run **depth-first and eval-first** (decided with the user): build a measurement harness, then add each advanced pattern as a *measured* experiment rather than a vibe.
+
+**Structure convention (decided):** advanced patterns are added as **new capability files composed behind the existing interfaces** — e.g. a `RerankingRetriever` that *wraps* the base `Retriever`, a `HybridRetriever` that fuses a dense + a BM25 retriever via RRF. The naive v1 modules stay **untouched and runnable** as the baseline. **No `v2` copies of existing files.** Advanced notes live under `notes/advanced/`.
+
+**Sequence:** (1) eval harness [in progress] → (2) reranking → (3) hybrid (BM25+RRF) → (4) decomposition / round-robin (Experiment 7). Each measured against the golden set.
+
+**Eval harness status:** design captured in `notes/advanced/eval-notes.md`. Metrics: **recall@k + MRR**, retrieval-only (not faithfulness — that's Module 05). Golden set (~15–20 Qs across semantic / exact-term / cross-company categories) is being **labeled collaboratively** with the user. Then build `app/eval.py` + `python cli.py eval` (reads any retriever, so A/B = run eval against two configs). Not yet built — labeling first, then notes filled, then code on explicit go.
 
 ## Stage 1 result snapshot (cleaned section sizes)
 
@@ -98,7 +108,7 @@ Hallucinated citations across all 5: 0  (citation audit clean every run)
 
 **Two findings worth carrying forward (detail in generation-notes.md):**
 - **Finding B:** a high similarity score is *not* a license to answer. Q4 refused at 0.68 because the chunks answered a different question (Apple's risks, not Tesla's). The confidence gate guards weak retrieval; grounding-to-the-question guards confidently-wrong-company retrieval.
-- **Finding C (queued fix):** the `refused` flag is exact-match, so Q3's "lead with refusal sentence then partially answer" prints as ANSWER with self-contradictory prose. Tighten system rule 3 so the canned refusal line is reserved for *total* refusal; partial answers should answer what's there and state the gap. Deferred — this run is the "before" evidence.
+- **Finding C (RESOLVED):** refusal in RAG is three-state (answer / partial / refuse), not binary. Q3 fell through the missing "partial" slot and self-contradicted. Fixed by rewriting system rule 3 into three branches keyed to "does the chunk answer the part asked?". Re-run confirmed Q3 fixed + Q5 not regressed. See `notes/generation-notes.md` Finding C.
 
 ## Files on disk now
 
@@ -109,6 +119,7 @@ module-02-rag-app/
 ├── .gitignore
 ├── requirements.txt
 ├── README.md                  ← project entry point + CLI reference + stage status
+├── WHY.md                      ← cross-cutting design rationale (the horizontal view) + self-test Q&A
 ├── SESSION-STATE.md           ← this file
 ├── prompt-instructions.md     ← original project spec
 ├── cli.py                     ← Stages 1–6 wired (ingest / chunk / embed / build·store·inspect / retrieve / ask)
@@ -139,25 +150,26 @@ module-02-rag-app/
 
 1. **`get_sentence_embedding_dimension` FutureWarning** in `app/embed.py:89`. The method was renamed to `get_embedding_dimension` in a recent sentence-transformers release; one-line fix. Cosmetic only — no functional impact. (Still firing — seen again during the Stage 6 run.)
 2. **CLI tail-preview cropping** in `app/chunking.py:_print_sample_chunk`. The tail slice doesn't snap to a word boundary, so sample chunks display previews that *appear* to start mid-word. The chunk content is correct; only the display is ugly. Will fix on next CLI touch.
-3. **Stage 6 Finding C — refusal-contract refinement.** The exact-match `refused` flag mishandles partial answers (Q3 led with the canned refusal sentence then answered). Tighten system rule 3 in `app/generate.py` so the refusal sentence is reserved for *total* refusal; partial answers should answer what's available and state the gap in their own words. This run is the deliberate "before" evidence.
+3. ~~Stage 6 Finding C — refusal-contract refinement.~~ **DONE.** Rewrote system rule 3 into three keyed branches (answer / partial / refuse), keyed to "does the chunk answer the part asked?" not "is there related content?". Re-run verified: Q3 now answers NVIDIA + states the Tesla gap in its own words (no canned sentence, 5 cites, audit clean); Q5 stayed a clean refusal (no regression). No code beyond the prompt string. Details in `notes/generation-notes.md` Finding C. **Queued follow-up:** promote `partial` to a first-class return signal (model emits a structured tag) — deferred, not smuggled in.
 
 ## Stage 6 — DONE (summary)
 
 Shipped `app/generate.py` (`Generator.answer(question, chunks, top_sim) -> dict`) + the `ask` subcommand. Hybrid refusal gate (hard-gate `<0.52` no-API, grey-band `0.52–0.58` prompt-decides, thresholds in `config.refuse_floor`/`refuse_grey`), citation audit (extract `[id]`, split known/unknown), injection defense by role discipline (rules in system prompt; chunks fenced + declared inert in user turn). Five-question run passed: 0 hallucinated citations, Q4+Q5 refused correctly, Q5 via the grey-band path. Full design + grading: `notes/generation-notes.md`. Two findings (B: high sim ≠ answerable; C: refusal-flag refinement queued) carried into the TODO list above.
 
-## Stage 7 plan (next session)
+## Stage 7 — DONE (summary)
 
-**What:** `WHY.md` (design-rationale narrative tying the stages together) + a final `README.md` polish pass now that the pipeline is end-to-end complete.
-
-**Anticipated content for `WHY.md`:** the through-line of *why* each stage's key decision was made — structure-aware chunking, the Embedder/VectorStore interfaces, metadata filtering as the cheapest accuracy lever, the two-layer "retrieval reports, prompt acts" confidence design, and the hybrid refusal gate. Pull the "interview-defensible" framings already scattered across the `*-notes.md` files into one narrative.
+Wrote `WHY.md`: the horizontal design-rationale doc (distinct from the vertical per-stage notes). Five cross-cutting principles (interfaces at swap points; mechanism stays visible; retrieval reports / prompt acts; trust rank, calibrate score per-model; honest about limitations), a "why X not Y" decision-log table, a "trusting quality without a full eval harness" section (eyeballing skills + citation audit + the named eval gap), and the experiment queue framed as a roadmap. Prose-first with one table; **learner self-test Q&A woven after each principle** (concept questions, not interview prep — per the curriculum's learning reframe). README updated: build-status table (Stage 6+7 done), pipeline diagram, repo layout (+WHY.md, +generate.py, +generation-notes.md), CLI reference (`ask` live), and "where to read for depth" (+generation-notes, +WHY.md).
 
 ## What to do at the start of next session
 
-1. Re-read `README.md` (project entry point) and this file.
-2. Skim `notes/generation-notes.md` — the Stage 6 findings (esp. Finding C) feed the WHY.md narrative and may prompt the refusal-contract refinement first.
-3. Decide: knock out Finding C (refusal-contract refinement) + the two cosmetic TODOs before or after writing WHY.md.
-4. Update README build-status table + pipeline diagram to mark Stage 6 done.
-5. Write `WHY.md`.
+The core 7-stage build is complete. Options, all optional:
+
+1. **Experiments** (queued below) — Experiment 7 (round-robin retrieval) is the highest-value next concept; it makes cross-company comparison questions actually answerable.
+2. **Finding C follow-up** — promote `partial` to a first-class return signal (model emits a structured tag).
+3. **Cosmetic TODOs** — `embed.py` FutureWarning + chunk tail-preview cropping.
+4. **Move to Module 03 (agents)** in the curriculum.
+
+Whichever: whiteboard-first, teach scenarios, user runs the tests (see CLAUDE.md working agreement).
 
 ## Open teaching threads still to revisit
 
@@ -174,4 +186,4 @@ Shipped `app/generate.py` (`Generator.answer(question, chunks, top_sim) -> dict`
 
 ## Curriculum context (do not lose)
 
-This is the Module 02 (RAG) project of the AI engineering curriculum at `~/Projects/ai-engineering-notes/`. Theory phase is done; notes are in `02-rag/`. User values genuine understanding they can defend in an interview, not just a working pipeline. Teach, don't just tell. Be direct.
+This is the Module 02 (RAG) project of the AI engineering curriculum at `~/Projects/ai-engineering-notes/`. Theory phase is done; notes are in `02-rag/`. User values deep, first-principles understanding they can reason from, not just a working pipeline. Teach, don't just tell. Be direct.

@@ -13,7 +13,7 @@ Given a question like *"What are Tesla's main risks?"*, the system:
 3. **Embeds** every chunk into a 384-dimensional vector using `BAAI/bge-small-en-v1.5` running locally on CPU.
 4. **Stores** the chunks (text + vector + metadata) in a persistent Chroma collection.
 5. **Retrieves** the top-k chunks most similar to the user's question, with optional company-level metadata filtering.
-6. **Generates** a grounded answer with inline citations to the source filings using Anthropic Claude. *(not yet implemented)*
+6. **Generates** a grounded answer with inline citations to the source filings using Anthropic Claude, refusing cleanly when the retrieved chunks don't support an answer.
 
 ## Quick start
 
@@ -59,7 +59,7 @@ EDGAR (10-K HTML)
         │
         ▼  retrieve    (top-k cosine, optional ticker filter, confidence label on top-1)
         │
-        ▼  generate    (Claude with grounded-citation prompt)  [Stage 6, pending]
+        ▼  generate    (Claude: grounded-citation prompt + hybrid refusal + citation audit)
 ```
 
 ## CLI reference
@@ -90,8 +90,10 @@ python cli.py retrieve --question "..." --company TSLA        # filtered
 python cli.py retrieve --question "..." --company TSLA --k 8  # custom top-k
 python cli.py retrieve --question "..." --company TSLA --compare   # filtered vs unfiltered side by side
 
-# Stage 6 — full RAG (pending)
-python cli.py ask --question "..." [--company TSLA]
+# Stage 6 — full RAG: retrieve + generate with citations
+python cli.py ask --question "..."                       # unfiltered
+python cli.py ask --question "..." --company TSLA         # filtered
+python cli.py ask --question "..." --company TSLA --k 8   # custom top-k
 ```
 
 ## Repository layout
@@ -99,6 +101,7 @@ python cli.py ask --question "..." [--company TSLA]
 ```
 module-02-rag-app/
 ├── README.md                  ← this file
+├── WHY.md                      ← cross-cutting design rationale (why the system is shaped this way)
 ├── prompt-instructions.md     ← original project spec
 ├── .env.example               ← config template (commit-safe)
 ├── .env                       ← real config (gitignored)
@@ -111,7 +114,8 @@ module-02-rag-app/
 │   ├── chunking.py            ← Stage 2: recursive structure-aware chunker
 │   ├── embed.py               ← Stage 3: Embedder ABC + local BGE implementation
 │   ├── store.py               ← Stage 4: VectorStore ABC + Chroma wrapper
-│   └── retrieve.py            ← Stage 5: top-k orchestration + UX mitigations
+│   ├── retrieve.py            ← Stage 5: top-k orchestration + UX mitigations
+│   └── generate.py            ← Stage 6: Generator (citation contract + hybrid refusal + audit)
 
 ├── data/                      ← (gitignored) all build artifacts
 │   ├── raw/                   ← cached 10-K HTML
@@ -125,7 +129,8 @@ module-02-rag-app/
 │   ├── chunking-notes.md      ← Stage 2: design + experiments + implementation decisions
 │   ├── embedding-notes.md     ← Stage 3: intuition + BGE quirks + score-compression lesson
 │   ├── store-chroma-notes.md  ← Stage 4: numpy-vs-vectorDB framing + design decisions
-│   └── retrieval-notes.md     ← Stage 5: filtered-vs-unfiltered + pressure tests + findings
+│   ├── retrieval-notes.md     ← Stage 5: filtered-vs-unfiltered + pressure tests + findings
+│   └── generation-notes.md    ← Stage 6: citation contract + hybrid refusal + injection defense
 
 # Session continuity
 └── SESSION-STATE.md           ← state-of-the-build for resuming across sessions
@@ -141,8 +146,8 @@ module-02-rag-app/
 | 3 — Embed | done | BGE-small-en-v1.5 wrapper + sanity-check CLI |
 | 4 — Store | done | Chroma collection `filings` with 678 rows; metadata filter verified |
 | 5 — Retrieve | done | Top-k with optional `--company` filter; warning + confidence label mitigations verified |
-| 6 — Generate | **pending** | Claude Opus 4.6 with grounded citation prompt |
-| 7 — Polish | pending | `WHY.md` for design rationale, expanded docs |
+| 6 — Generate | done | Claude Opus 4.8: citation contract + hybrid refusal gate + citation audit; 5-question run, 0 hallucinated citations |
+| 7 — Polish | done | `WHY.md` design rationale + README pass |
 
 ## Where to read for depth
 
@@ -155,6 +160,8 @@ The companion `*-notes.md` files are the real documentation. Each one captures i
 | `notes/embedding-notes.md` | what an embedding actually is, BGE's query-prefix quirk, why model-specific score calibration matters more than you'd think |
 | `notes/store-chroma-notes.md` | when a vector database earns its keep vs. plain numpy, why metadata filtering is the cheapest accuracy lever |
 | `notes/retrieval-notes.md` | pressure-tests of the retrieval design, real failure modes observed, why cross-company questions break naive top-k |
+| `notes/generation-notes.md` | the citation contract and how it's enforced, the hybrid refusal gate, prompt-injection defense by role discipline, why refusal is three-state |
+| `WHY.md` | the horizontal view — the cross-cutting design principles and "why X not Y" decisions that span all six stages |
 
 Together with the inline code comments, these notes are the design document. Reading them in stage order builds the same picture the code does, from a teaching perspective rather than an implementation one.
 

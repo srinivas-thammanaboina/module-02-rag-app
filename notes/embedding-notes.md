@@ -40,7 +40,7 @@ Reference: the model card at `https://huggingface.co/BAAI/bge-small-en-v1.5` doc
 
 The pattern: `Embedder` is an abstract class with `embed_query(text) -> vector` and `embed_documents(texts) -> matrix`. Today we ship one concrete implementation — `LocalSentenceTransformerEmbedder`. Tomorrow we might add `OpenAIEmbedder`, `VoyageEmbedder`, or a fine-tuned in-house model.
 
-**The argument I'd make in an interview:** in any real RAG system you will A/B test embedders. The metric difference between a strong general embedder and a domain-tuned one on your corpus is often the difference between "decent" and "production-ready" retrieval. You want the swap to be a one-line config change, not a refactor across `retrieve.py`, `store.py`, and the demo scripts. The Embedder interface is the seam that makes this cheap.
+**The argument from first principles:** in any real RAG system you will A/B test embedders. The metric difference between a strong general embedder and a domain-tuned one on your corpus is often the difference between "decent" and "production-ready" retrieval. You want the swap to be a one-line config change, not a refactor across `retrieve.py`, `store.py`, and the demo scripts. The Embedder interface is the seam that makes this cheap.
 
 **Concrete swap story:** today `config.embedding_model = "BAAI/bge-small-en-v1.5"` and `get_embedder()` returns the local class. To test OpenAI, you'd add an `OpenAIEmbedder` class implementing the same two methods, dispatch on a config flag inside `get_embedder()`, and nothing else in the codebase changes. The contract — input is text, output is normalized vectors with a known dim — is what every downstream stage depends on.
 

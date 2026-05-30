@@ -55,7 +55,7 @@ In numpy you'd hand-roll this: maintain an `id → row-index` dict, handle the c
 
 ### 4. Metadata filtering — the actual reason
 
-This is the one to take into an interview. Consider:
+This is the one worth really internalizing. Consider:
 
 > *"What does Tesla say about supply chain risk?"*
 

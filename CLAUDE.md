@@ -6,7 +6,7 @@ Auto-loaded by Claude Code in this directory. **Read this before doing anything.
 
 I'm working through an AI Engineer curriculum. **Module 02 is RAG** — building a citation-grounded Q&A copilot over SEC 10-K filings. This project is the practical companion to the theory notes at `ai-engineering-notes/02-rag/`.
 
-**The point of this project is my understanding, not your throughput.** I want to be able to explain every design decision in this pipeline in a job interview. Optimize for that. Polished code I don't understand is a failure of this project; messy code I do understand is a success.
+**The point of this project is my understanding, not your throughput.** I want to deeply understand every design decision in this pipeline and be able to reason about it from first principles. Optimize for that. Polished code I don't understand is a failure of this project; messy code I do understand is a success.
 
 ## Non-negotiable working agreement
 
