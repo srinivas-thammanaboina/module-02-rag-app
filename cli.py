@@ -144,6 +144,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Wrap the dense retriever in the cross-company round-robin decomposer (Experiment 7, Phase A).",
     )
+    p_eval.add_argument(
+        "--llm-decompose",
+        dest="llm_decompose",
+        action="store_true",
+        help="Wrap in the LLM query decomposer (Experiment 7, Phase B — general, cached, costs LLM calls).",
+    )
+    p_eval.add_argument(
+        "--decomposer",
+        default=None,
+        help="LLM for --llm-decompose: 'haiku' (default), 'sonnet', 'opus', or a full model name.",
+    )
     p_eval.set_defaults(func=evaluation.run_cli)
 
     return parser

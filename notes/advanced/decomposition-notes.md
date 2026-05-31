@@ -108,9 +108,102 @@ control  Q16 top-1 sim=0.5656 (noise floor — expected)
 3. **Forced balance assumes symmetric questions.** Round-robin gives every company equal slots; a question genuinely weighted toward one company could get a weaker chunk injected. Our compare-questions are symmetric, so it's right here — but the assumption is real (RRF is the nuance later).
 4. **Small-corpus caveat persists.** Q13 capped at 0.83 (6 rel, 5 slots) — read its score against 0.83, not 1.0.
 
+---
+
+# Phase B — LLM query decomposition
+
+**Takeaway:** Phase A split on a *known, detectable* axis (company, via keyword match) — deterministic, free, provably safe. Phase B handles questions whose split axis is *semantic and unknown ahead of time* (aspects), so we ask an LLM to find the axis and split on it. It's **query understanding, not retrieval** — and it trades away all three of Phase A's virtues (determinism, zero-cost, the safety guarantee) for generality. Whether that trade pays off is exactly what the eval is for.
+
+## The target (and why Phase A can't touch it)
+
+**Q7** "How does Tesla generate revenue beyond vehicle sales?" — still **0.25**, the worst reliable question. Relevant: 0020 (used cars), 0012 (energy), 0224 (leasing), 0021 (services). Dense collapses onto the single most-similar aspect (0020); Phase A sees one company → passthrough → no help. An *enumeration* failure with no tickers to split on.
+
+## Design — `LLMDecompositionRetriever` (general; a candidate REPLACEMENT for Phase A)
+
+```
+retrieve(question, k, company):
+    subs = llm_decompose(question)              # LLM → 1..N focused sub-queries (cached)
+    if len(subs) <= 1: return base.retrieve(question, k, company)   # atomic → passthrough
+    per = {sub: base.retrieve(sub, k, company) for sub in subs}     # text sub-queries, caller's filter
+    return round_robin_merge(per, k)            # REUSE Phase A merge; dedup now load-bearing
+```
+
+The LLM decomposer is **strictly more general than Phase A**: "Tesla and NVIDIA AI investments" → split per company; Q7 → split per aspect. So Phase B isn't "A + Q7" — it's a candidate replacement, and the real question is *does a general LLM splitter match the cheap deterministic one on cross-company AND fix Q7, at an acceptable cost?*
+
+## Design decisions (CONFIRMED with user)
+
+1. **Decomposer model = Haiku** (`config.decomposer_model`, `claude-haiku-4-5`). Splitting is a cheap, simple task; Opus (the *answer* model) is overkill. Reuses the lazy-Anthropic-client pattern from `generate.py`.
+2. **Standalone general decomposer**, measured head-to-head against Phase A — not layered on top of it. The cleaner experiment: does generality beat the deterministic special-case?
+3. **Cache decompositions to disk** (`data/decomp_cache.json`, model-keyed) — preserves eval reproducibility (the "predicted to the decimal" discipline), avoids re-billing the same 17 questions every run. Stale on model change → rebuilt.
+4. **Pure text sub-queries, NO per-sub-query company filter.** Phase A hard-filtered per ticker; Phase B retrieves on sub-query *text* only. Chosen to **isolate the LLM-decomposition variable** for a clean A-vs-B comparison. Risk: text-steering may not isolate a company as hard as a filter → cross-company could land *below* A's 0.94. Per-sub filtering is a queued refinement, not baked in.
+5. **Structured output via tool-use** (`submit_subqueries`), not free-text parsing; **fallback to `[question]`** (= baseline) on any malformed/failed decomposition. Robust failure surface.
+6. **No `temperature`** (codebase convention; Opus 4.8 deprecates it, and we don't branch per-model). Determinism comes from the cache, not sampling control.
+
+## The tradeoffs — the whole lesson of Phase B
+
+| | Phase A (deterministic) | Phase B (LLM) |
+|---|---|---|
+| safety | non-target questions *provably* untouched | atomic questions *should* be untouched — now a RISK to measure, not a guarantee |
+| determinism | exact, reproducible | nondeterministic → mitigated by the cache |
+| cost | 0 API calls | 1 LLM call per (uncached) question |
+| failure surface | none | malformed output, drift, over/under-split → structured output + fallback |
+| reach | cross-company only | cross-company *and* aspect (general) |
+
+## Sanity-check experiment — PREDICTIONS (fill actuals after running)
+
+Run: `python cli.py eval --llm-decompose`. Baselines: naive 0.79; Phase A 0.88.
+
+| | baseline | Phase A | **Phase B predicted** |
+|---|---|---|---|
+| Q7 (aspect) | 0.25 | 0.25 | **~0.75–1.00** (LLM-dependent — less certain than A) |
+| cross-company (n_rel=3) | 0.67 | 0.94 | **~0.83–0.94** (only if text sub-queries isolate the company as well as A's filter did) |
+| atomic (Q2/8/9/10/12/17) | — | unchanged | **should be ~unchanged — RISK of over-split collateral** |
+| overall (n_rel=10) | 0.79 | 0.88 | **~0.88–0.92** (upside from Q7; downside from over-splitting atomics or weak company-steering) |
+
+**How to read the result:** unlike A, B has real upside (Q7) *and* real downside risk. Watch three things: (1) did Q7 jump? (2) did cross-company hold near A's 0.94, or did losing the hard filter cost us? (3) did any atomic question move (over-split collateral)? Also eyeball `data/decomp_cache.json` to see *how* the LLM actually split each question — the sub-queries are the real artifact.
+
+## Sanity-check experiment — ACTUALS (`python cli.py eval --llm-decompose`)
+
+```
+overall        recall@5=0.76 recall@10=0.88 (n_rel=10)  ·  hit@5=1.00 MRR=0.91 (n=16)
+cross-company  recall@5=0.56 recall@10=0.75 (n_rel=3)   ·  hit@5=1.00 MRR=1.00 (n=3)
+exact-term     recall@5=0.92 recall@10=1.00 (n_rel=4)   ·  hit@5=1.00 MRR=1.00 (n=5)
+semantic       recall@5=0.75 recall@10=0.83 (n_rel=3)   ·  hit@5=1.00 MRR=0.81 (n=8)
+```
+
+**Phase B LOST: `baseline 0.79 → Phase A 0.88 → Phase B 0.76`** — below baseline, 0.12 under the deterministic version, and Q7 never moved. The honest answer to "does generality beat the special-case?" is **no**, and the cache (`data/decomp_cache.json`) shows two distinct causes:
+
+**Failure 1 — Q7 under-decomposition.** Haiku returned Q7 as a SINGLE sub-query ("How does Tesla generate revenue beyond vehicle sales") — it never split it. Decomposing an *implicit* enumeration requires inferring Tesla's specific non-vehicle streams (used cars / energy / leasing / services); the model didn't. The target failure was never attempted → 0.25 unchanged.
+
+**Failure 2 — cross-company degraded (0.67 → 0.56, below baseline).** The LLM split *correctly* by company (e.g. Q15 → "Tesla regulatory/legal risk" + "Apple regulatory/legal risk"), but these are **pure-text sub-queries with no hard filter.** Run unfiltered, "Tesla regulatory risk" doesn't guarantee Tesla chunks, and splitting the 5-slot window across two un-partitioned queries gave fewer slots to worse-partitioned results than the single baseline query. Q15 cratered 0.75 → 0.25.
+
+**Attribution is clean:** the entire 0.79 → 0.76 drop is cross-company degradation. Atomics held (exact-term 0.92, semantic 0.75 — every atomic question returned one sub-query, cache-confirmed). **The over-split collateral risk never materialized; Haiku *under*-split if anything.**
+
+**The lesson that matters:** this isolates what actually made Phase A work — **not the round-robin merge, the hard company filter.** A's `ticker=` filter guaranteed each company's chunks came from a disjoint, correctly-partitioned pool. B kept the merge, dropped the filter, and underperformed even the undecomposed baseline. **Decomposing without a partition guarantee can be worse than not decomposing.** And the curriculum-level lesson: a more powerful/general tool (LLM) is not automatically better — measured head-to-head, it lost to 30 deterministic lines. Only knowable because the eval is trustworthy.
+
+**Verdict: pure LLM decomposition is parked.** The fix is Phase B+ (below) — but Phase A remains the shipped cross-company solution.
+
+### Model sweep — capability is NOT the lever (`--decomposer opus` vs `haiku`)
+
+Swapped the decomposer Haiku → Opus (`--decomposer {haiku,opus}`, splits cached per-model in `data/decomp_cache.json`) to test whether Q7's under-split was a *model-capability* gap.
+
+| | Haiku | Opus | baseline | Phase A |
+|---|---|---|---|---|
+| overall recall@5 | 0.76 | 0.78 | 0.79 | **0.88** |
+| cross-company | 0.56 | 0.64 | 0.67 | **0.94** |
+| Q7 | 0.25 | **0.25** | 0.25 | 0.25 |
+
+**A ~10×-pricier model moved the headline +0.02, and still lost to baseline and to the 30-line Phase A.** The cache shows why, and it fully disentangles the two failures:
+
+- **Q7 is not capability-bound.** Opus echoed Q7 unchanged (`["How does Tesla generate revenue beyond vehicle sales?"]`) — exactly like Haiku. Opus surely *knows* Tesla's segments from training, but with the question reading as one coherent ask, no instruction to proactively enumerate, and **no corpus grounding**, the safe move is to echo. → fix is **prompting/grounding** (retrieve-then-expand / feed the aspects), not a bigger model.
+- **Cross-company is not capability-bound.** Both models split correctly by company; Opus did marginally better (Q15 0.25→0.50) *only because its sub-query phrasing was cleaner* (Haiku appended noise like "in its 10-K filing"). Still 0.64 < baseline — the missing hard filter is the structural cause, untouched by model choice. → fix is the **mechanism** (per-sub-query filter).
+
+**Stage meta-lesson, third confirmation:** the fancier/pricier component keeps NOT winning the measurement — reranking>dense (no), LLM-decompose>keyword-decompose (no), Opus>Haiku (+0.02, still a loss). The real levers here are cheap: a hard partition filter (mechanism) and grounding/prompting (task design), not raw model power. (Minor side-finding: terse sub-query phrasing beat verbose "…in its 10-K filing" phrasing — sub-query *style* matters a little.)
+
 ## Future experiments queue
 
-- **Phase B — LLM query decomposition** for the aspect-enumeration case (Q7) and the general "entities not named" case. Adds an LLM call + latency + nondeterminism; measure whether the generality is worth it.
+- **Phase B+ = LLM split + per-sub-query company filter (NOW DATA-JUSTIFIED).** Reuse `detect_companies_in_question()` on each sub-query; if it names exactly one company, apply Phase A's hard `ticker=` filter. Predicted: restores cross-company to ~Phase A's 0.94 (the filter — the load-bearing part — comes back) while keeping LLM generality for aspect-splits. Leaves Q7 unfixed (that's decomposition *quality*, not retrieval).
+- **Q7 / implicit-enumeration fix** — Haiku under-split it. Options: a stronger decomposer (Opus) for splitting; few-shot examples of aspect-splits in the prompt; or **retrieve-then-expand** (a first retrieval pass surfaces the aspects, then decompose) — the principled but heavier route.
 - **RRF merge** as an alternative to round-robin if/when a question needs rank-weighted (not equal) balance.
 - **Apply decomposition inside `ask`** (not just `eval`) so cross-company *answers* improve, not just retrieval — and re-check Stage 6 Finding 2 (the cross-company partial-answer case).
 

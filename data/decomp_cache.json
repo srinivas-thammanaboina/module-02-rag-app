@@ -1,0 +1,114 @@
+{
+  "claude-haiku-4-5": {
+    "What are the main risks Tesla faces?": [
+      "What are the main risks Tesla faces"
+    ],
+    "What does Apple say about supply chain concentration?": [
+      "What does Apple say about supply chain concentration"
+    ],
+    "How does NVIDIA describe its competitive position?": [
+      "How does NVIDIA describe its competitive position in the market"
+    ],
+    "What does Tesla say about employee retention and talent?": [
+      "What does Tesla say about employee retention and talent"
+    ],
+    "What macroeconomic factors affect Apple's results?": [
+      "What macroeconomic factors affect Apple's results"
+    ],
+    "What are NVIDIA's risks around supply and manufacturing?": [
+      "What are NVIDIA's risks around supply and manufacturing?"
+    ],
+    "How does Tesla generate revenue beyond vehicle sales?": [
+      "How does Tesla generate revenue beyond vehicle sales"
+    ],
+    "What is NVIDIA NIM?": [
+      "What is NVIDIA NIM"
+    ],
+    "What does NVIDIA say about CUDA?": [
+      "What does NVIDIA say about CUDA in their SEC filings?"
+    ],
+    "What is Tesla's Supercharger network?": [
+      "What is Tesla's Supercharger network and its characteristics in Tesla SEC 10-K filings"
+    ],
+    "What does Tesla say about Robotaxi?": [
+      "What does Tesla say about Robotaxi"
+    ],
+    "Does Apple pay a dividend?": [
+      "Does Apple pay a dividend?"
+    ],
+    "How do Tesla and NVIDIA describe their AI investments?": [
+      "How does Tesla describe its AI investments?",
+      "How does NVIDIA describe its AI investments?"
+    ],
+    "Compare supply chain risk for Apple and Tesla.": [
+      "Apple supply chain risk",
+      "Tesla supply chain risk"
+    ],
+    "How do Tesla and Apple describe regulatory/legal risk?": [
+      "How does Tesla describe regulatory and legal risk in its 10-K filing?",
+      "How does Apple describe regulatory and legal risk in its 10-K filing?"
+    ],
+    "What is the CEO's home address?": [
+      "What is the CEO's home address?"
+    ],
+    "What are NVIDIA's gaming segment products?": [
+      "What are NVIDIA's gaming segment products?"
+    ]
+  },
+  "claude-opus-4-8": {
+    "What are the main risks Tesla faces?": [
+      "What are the main risks Tesla faces?"
+    ],
+    "What does Apple say about supply chain concentration?": [
+      "What does Apple say about supply chain concentration?"
+    ],
+    "How does NVIDIA describe its competitive position?": [
+      "How does NVIDIA describe its competitive position?"
+    ],
+    "What does Tesla say about employee retention and talent?": [
+      "What does Tesla say about employee retention and talent?"
+    ],
+    "What macroeconomic factors affect Apple's results?": [
+      "What macroeconomic factors affect Apple's results?"
+    ],
+    "What are NVIDIA's risks around supply and manufacturing?": [
+      "What are NVIDIA's risks around supply and manufacturing?"
+    ],
+    "How does Tesla generate revenue beyond vehicle sales?": [
+      "How does Tesla generate revenue beyond vehicle sales?"
+    ],
+    "What is NVIDIA NIM?": [
+      "What is NVIDIA NIM?"
+    ],
+    "What does NVIDIA say about CUDA?": [
+      "What does NVIDIA say about CUDA?"
+    ],
+    "What is Tesla's Supercharger network?": [
+      "What is Tesla's Supercharger network?"
+    ],
+    "What does Tesla say about Robotaxi?": [
+      "What does Tesla say about Robotaxi?"
+    ],
+    "Does Apple pay a dividend?": [
+      "Does Apple pay a dividend?"
+    ],
+    "How do Tesla and NVIDIA describe their AI investments?": [
+      "How does Tesla describe its AI investments?",
+      "How does NVIDIA describe its AI investments?"
+    ],
+    "Compare supply chain risk for Apple and Tesla.": [
+      "What supply chain risks does Apple disclose in its 10-K filing?",
+      "What supply chain risks does Tesla disclose in its 10-K filing?"
+    ],
+    "How do Tesla and Apple describe regulatory/legal risk?": [
+      "How does Tesla describe regulatory and legal risk?",
+      "How does Apple describe regulatory and legal risk?"
+    ],
+    "What is the CEO's home address?": [
+      "What is the CEO's home address?"
+    ],
+    "What are NVIDIA's gaming segment products?": [
+      "What are NVIDIA's gaming segment products?"
+    ]
+  }
+}

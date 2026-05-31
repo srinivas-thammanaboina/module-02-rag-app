@@ -68,6 +68,11 @@ class Config:
     anthropic_model: str = "claude-opus-4-8"
     anthropic_api_key: str = ""
 
+    # Decomposer model (advanced stage, decomposition Phase B). Query-splitting is
+    # a cheap, simple task — Haiku, not the Opus answer-model. Used by
+    # app/llm_decompose.py; see notes/advanced/decomposition-notes.md.
+    decomposer_model: str = "claude-haiku-4-5"
+
     # Refusal gate thresholds for the hybrid refusal policy (Stage 6).
     # CALIBRATED FOR bge-small-en-v1.5 ONLY — these are top-1 cosine bands from
     # notes/embedding-notes.md. Swap the embedding model and BOTH numbers must be

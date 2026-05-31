@@ -258,6 +258,16 @@ def run_cli(args) -> None:
         retriever = DecompositionRetriever(retriever)
         label = "decomposed (round-robin)" if label == "baseline (naive dense)" else f"{label} + decomposed"
 
+    # Optional: wrap in the LLM query decomposer (Experiment 7, Phase B).
+    if getattr(args, "llm_decompose", False):
+        from app.llm_decompose import LLMDecompositionRetriever, DECOMPOSER_MODELS
+
+        key = getattr(args, "decomposer", None) or "haiku"
+        model_name = DECOMPOSER_MODELS.get(key, key)  # shorthand or a full model name
+        retriever = LLMDecompositionRetriever(retriever, model=model_name)
+        tag = f"llm-decomposed ({key})"
+        label = tag if label == "baseline (naive dense)" else f"{label} + {tag}"
+
     rows = evaluate(retriever, golden, depth=depth)
     agg = aggregate(rows)
     _print_report(rows, agg, label=label, depth=depth)

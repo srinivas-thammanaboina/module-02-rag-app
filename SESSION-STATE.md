@@ -44,9 +44,16 @@ The naive 7-stage pipeline is complete. We've entered the **advanced-RAG stage**
 
 **Eval harness status:** design captured in `notes/advanced/eval-notes.md`. Metrics: **recall@k + MRR**, retrieval-only (not faithfulness — that's Module 05). Baseline run done (recall@5=0.79, MRR=0.86). Plain-terms metric explainer for the user in `notes/advanced/reading-eval-metrics.md` (Q3 worked fully; Q4/Q12/Q13/Q7/Q16 queued as worked examples — currently walking through these one at a time with the user before resuming the build).
 
-### ⏸ RESUME HERE (decomposition Phase A DONE — FIRST real win; next = Phase B / LLM-judge / hybrid)
+### ⏸ RESUME HERE (decomposition Phase A = win, Phase B = instructive loss; next = Phase B+ / LLM-judge / hybrid)
 
-**LATEST (this session) — decomposition / round-robin (Experiment 7, Phase A) → THE FIRST PATTERN TO BEAT BASELINE** (`decomposition-notes.md`)
+**LATEST (this session) — decomposition Phase B (LLM query decomposition) → LOST, instructively** (`decomposition-notes.md`, `app/llm_decompose.py`, `cli.py eval --llm-decompose`, cache `data/decomp_cache.json`)
+- General LLM splitter (Haiku, cached, structured tool-use, fallback). **Result: 0.79 → 0.76 — below baseline, 0.12 under Phase A's 0.88. Q7 never moved.**
+- **Two failures (from the cache):** (1) **Q7 under-decomposition** — Haiku returned it as ONE sub-query; never inferred the {used cars/energy/leasing/services} aspects. (2) **Cross-company degraded 0.67→0.56** — the LLM split correctly by company, but **pure-text sub-queries with NO hard filter** retrieved worse than Phase A and even worse than the undecomposed baseline (Q15 0.75→0.25). Atomics held (no over-split collateral).
+- **Lesson:** Phase A's win was the **hard `ticker=` filter**, not the round-robin. Decomposing without a partition guarantee can be *worse* than not decomposing. A general LLM tool lost head-to-head to 30 deterministic lines — knowable only because the eval is trustworthy.
+- **Model sweep (`--decomposer opus` vs `haiku`) — capability is NOT the lever.** Opus moved overall only 0.76→0.78 (still < baseline, << Phase A) and **echoed Q7 unchanged just like Haiku** (cache, per-model nested). Disentangles the failures: Q7 = prompting/grounding problem (even Opus won't enumerate blind), cross-company = mechanism problem (no filter). Third stage-confirmation that the pricier component doesn't win the measurement.
+- **Fix queued: Phase B+** = LLM split + per-sub-query company filter (restores the filter, keeps generality). Q7 needs a decomposition-*quality* fix — and the sweep shows that's **prompting/grounding (retrieve-then-expand), NOT a bigger model**.
+
+**EARLIER (this session) — decomposition / round-robin (Experiment 7, Phase A) → THE FIRST PATTERN TO BEAT BASELINE** (`decomposition-notes.md`)
 - Built `app/decompose.py` (`DecompositionRetriever` + `round_robin_merge`), `cli.py eval --decompose`. Deterministic, no LLM. Reuses the Stage-5 `detect_companies_in_question()` primitive.
 - **Dispatch rule (the safety property):** decompose ONLY when unfiltered AND ≥2 companies named; else passthrough to the exact baseline path → single-company/semantic questions provably unchanged.
 - **Result: overall recall@5 0.79 → 0.88, MRR flat 0.91. Predicted to the decimal.** cross-company 0.67 → **0.94** (Q13 0.50→0.83 cap, Q14 0.75→1.00, Q15 0.75→1.00). **Falsification check PASSED:** semantic (0.75) + exact-term (0.92) byte-identical to baseline — zero collateral damage.
@@ -78,12 +85,13 @@ The naive 7-stage pipeline is complete. We've entered the **advanced-RAG stage**
 
 **Re-run reranking on the repaired eval — DONE** (verdict in the LATEST block at the top of RESUME HERE). minilm = wash/trade; bge = harness malfunction; both old numbers + the "killer insight" void.
 
-**THE NEXT STEP — pick one (decomposition Phase A is DONE):**
-1. **Decomposition Phase B — LLM query decomposition.** Targets the still-broken Q7 enumeration class (0.25) and the general "entities not named" case that Phase A's keyword detection can't reach. Adds an LLM call + latency + nondeterminism — measure whether the generality is worth it. (Could also try a non-LLM aspect heuristic first.)
-2. **Apply decomposition inside `ask`** (not just `eval`) so cross-company *answers* improve, and re-check Stage 6 Finding 2 (the cross-company partial-answer self-contradiction).
-3. **LLM-as-judge eval** — the deeper fix for the 6 representative questions; bridges to Module 05. Bigger, separate session.
-4. **Hybrid (BM25 + RRF)** — lower priority; golden set predicts only a modest win on this corpus.
-5. Optional: pin bge's root cause.
+**THE NEXT STEP — pick one (decomposition A = win, B = loss, both recorded):**
+1. **Decomposition Phase B+** — LLM split + per-sub-query company filter (data-justified by B's failure: restores Phase A's hard filter while keeping LLM generality). Predicted to recover cross-company to ~0.94; leaves Q7 unfixed.
+2. **Q7 / implicit-enumeration fix** — Haiku under-split it; try an Opus decomposer, few-shot aspect examples, or retrieve-then-expand.
+3. **Apply decomposition (Phase A) inside `ask`** so cross-company *answers* improve, and re-check Stage 6 Finding 2.
+4. **LLM-as-judge eval** — the deeper fix for the 6 representative questions; bridges to Module 05. Bigger, separate session.
+5. **Hybrid (BM25 + RRF)** — lower priority; golden set predicts only a modest win on this corpus.
+6. Optional: pin bge's root cause.
 
 **Advanced notes:** `eval-notes.md` (harness + findings 1–4; baseline marked superseded), `eval-audit.md` (the fixed-key repair: Findings A/B/C + repaired baseline), `decomposition-notes.md` (Experiment 7 Phase A — design + predictions-vs-reality, **first pattern to beat baseline**), `reading-eval-metrics.md` (metric explainer), `reranking-pool-sweep.md` (depth sweep), `reranking-results.md` (⚠️ old conclusions superseded — see its final section "Re-run on the REPAIRED eval" for the real verdict + the retraction of the "killer insight").
 

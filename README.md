@@ -175,15 +175,17 @@ After the naive pipeline was complete, the project entered an **eval-first** adv
 2. **Reranking "regressed"** — adding a cross-encoder *lowered* the score. But the regression was the clue, not the conclusion: it acted as an adversarial audit of the eval itself.
 3. **Audited and repaired the eval** — found a mislabeled golden answer (the dividend question credited the wrong chunks) and broad questions whose recall denominators were fictional; quarantined unreliable recall behind a per-question flag. Trustworthy baseline: recall@5 = 0.79, MRR = 0.91.
 4. **Re-judged reranking on the fixed eval** — `minilm` is a wash/trade (wins within-company, loses cross-company, no net gain); the second cross-encoder (`bge`) was a *broken measurement*, not a bad model. The original "reranking regressed" headline was an eval artifact all along.
-5. **Decomposition (round-robin) — the first real win** — splitting cross-company questions, retrieving per company, and merging by round-robin lifted recall@5 **0.79 → 0.88** with MRR flat, exactly where the eval predicted, with zero collateral damage to other categories.
+5. **Decomposition (round-robin), Phase A — the first real win** — splitting *cross-company* questions by a deterministic keyword match, retrieving per company with a hard filter, and merging round-robin lifted recall@5 **0.79 → 0.88** with MRR flat, exactly where the eval predicted, with zero collateral damage.
+6. **Decomposition Phase B (LLM query decomposition) — an instructive loss** — replacing the keyword split with a general LLM splitter *dropped* recall to 0.76 (below baseline). The cache showed why: it under-split the hard enumeration question, and its filterless text sub-queries underperformed the hard metadata filter. Generality lost to 30 deterministic lines, head-to-head.
 
-**The throughline:** most of the work was making the *measurement* trustworthy. Twice, "the model is bad" turned out to be "the eval is wrong." And in the end a deterministic ~30-line change (decomposition) beat a SOTA cross-encoder (reranking) — because it targeted the failure the eval had actually identified (coverage), not the one that was easy to assume (ranking).
+**The throughline:** most of the work was making the *measurement* trustworthy. Twice, "the model is bad" turned out to be "the eval is wrong." And in the end a deterministic ~30-line change (decomposition Phase A) beat both a SOTA cross-encoder *and* a general LLM decomposer — because it targeted the failure the eval had actually identified (coverage), with the one mechanism that mattered (a hard partition filter), rather than the more powerful tool that was easy to assume would win.
 
 | Pattern | recall@5 (vs trustworthy baseline 0.79) | verdict |
 |---|---|---|
 | Reranking — `minilm` cross-encoder | 0.80 | wash/trade — no net gain on this corpus |
 | Reranking — `bge` cross-encoder | 0.19 | broken measurement (harness issue), not a model verdict |
-| **Decomposition — cross-company round-robin** | **0.88** | **first real win; cross-company 0.67 → 0.94** |
+| **Decomposition Phase A — cross-company round-robin** | **0.88** | **first real win; cross-company 0.67 → 0.94** |
+| Decomposition Phase B — LLM query decomposition | 0.76 | instructive loss — generality underperformed the deterministic filter |
 
 ## Where to read for depth
 
