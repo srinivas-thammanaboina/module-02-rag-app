@@ -94,6 +94,12 @@ python cli.py retrieve --question "..." --company TSLA --compare   # filtered vs
 python cli.py ask --question "..."                       # unfiltered
 python cli.py ask --question "..." --company TSLA         # filtered
 python cli.py ask --question "..." --company TSLA --k 8   # custom top-k
+
+# Advanced stage — retrieval eval (recall@k + MRR vs eval/golden.jsonl)
+python cli.py eval                                       # baseline (naive dense)
+python cli.py eval --depth 50                            # sweep the candidate-pool ceiling
+python cli.py eval --rerank --reranker minilm            # A/B: cross-encoder reranking
+python cli.py eval --decompose                           # A/B: cross-company round-robin
 ```
 
 ## Repository layout
@@ -130,7 +136,17 @@ module-02-rag-app/
 │   ├── embedding-notes.md     ← Stage 3: intuition + BGE quirks + score-compression lesson
 │   ├── store-chroma-notes.md  ← Stage 4: numpy-vs-vectorDB framing + design decisions
 │   ├── retrieval-notes.md     ← Stage 5: filtered-vs-unfiltered + pressure tests + findings
-│   └── generation-notes.md    ← Stage 6: citation contract + hybrid refusal + injection defense
+│   ├── generation-notes.md    ← Stage 6: citation contract + hybrid refusal + injection defense
+│   └── advanced/              ← advanced stage: measured retrieval experiments
+│       ├── eval-notes.md      ← the eval harness (recall@k + MRR) + golden set design
+│       ├── eval-audit.md      ← repairing the eval after reranking exposed its flaws
+│       ├── reranking-pool-sweep.md ← candidate-pool depth sweep (ranking vs retrieval problem)
+│       ├── reranking-results.md    ← reranking re-judged: wash/trade + the bge harness bug
+│       └── decomposition-notes.md  ← cross-company round-robin — the first pattern to beat baseline
+
+├── eval/
+│   ├── golden.jsonl           ← hand-labeled question → relevant-chunk golden set
+│   └── debug_*.py             ← read-only reranker diagnostics
 
 # Session continuity
 └── SESSION-STATE.md           ← state-of-the-build for resuming across sessions
@@ -149,6 +165,26 @@ module-02-rag-app/
 | 6 — Generate | done | Claude Opus 4.8: citation contract + hybrid refusal gate + citation audit; 5-question run, 0 hallucinated citations |
 | 7 — Polish | done | `WHY.md` design rationale + README pass |
 
+## Advanced stage — measured retrieval experiments
+
+After the naive pipeline was complete, the project entered an **eval-first** advanced stage: build a measurement harness, then add each advanced-RAG pattern as a *measured* experiment rather than a vibe. Advanced patterns are composed **behind the existing `Retriever` interface** (e.g. a `DecompositionRetriever` that wraps the base retriever) — the v1 pipeline stays pristine as the baseline. Notes live in `notes/advanced/`.
+
+**The arc, one line each — this is the whole story of the stage:**
+
+1. **Built a measurement harness** — recall@k + MRR over a 17-question hand-labeled golden set, so every later change is measured, not guessed. First baseline: recall@5 = 0.79, MRR = 0.86.
+2. **Reranking "regressed"** — adding a cross-encoder *lowered* the score. But the regression was the clue, not the conclusion: it acted as an adversarial audit of the eval itself.
+3. **Audited and repaired the eval** — found a mislabeled golden answer (the dividend question credited the wrong chunks) and broad questions whose recall denominators were fictional; quarantined unreliable recall behind a per-question flag. Trustworthy baseline: recall@5 = 0.79, MRR = 0.91.
+4. **Re-judged reranking on the fixed eval** — `minilm` is a wash/trade (wins within-company, loses cross-company, no net gain); the second cross-encoder (`bge`) was a *broken measurement*, not a bad model. The original "reranking regressed" headline was an eval artifact all along.
+5. **Decomposition (round-robin) — the first real win** — splitting cross-company questions, retrieving per company, and merging by round-robin lifted recall@5 **0.79 → 0.88** with MRR flat, exactly where the eval predicted, with zero collateral damage to other categories.
+
+**The throughline:** most of the work was making the *measurement* trustworthy. Twice, "the model is bad" turned out to be "the eval is wrong." And in the end a deterministic ~30-line change (decomposition) beat a SOTA cross-encoder (reranking) — because it targeted the failure the eval had actually identified (coverage), not the one that was easy to assume (ranking).
+
+| Pattern | recall@5 (vs trustworthy baseline 0.79) | verdict |
+|---|---|---|
+| Reranking — `minilm` cross-encoder | 0.80 | wash/trade — no net gain on this corpus |
+| Reranking — `bge` cross-encoder | 0.19 | broken measurement (harness issue), not a model verdict |
+| **Decomposition — cross-company round-robin** | **0.88** | **first real win; cross-company 0.67 → 0.94** |
+
 ## Where to read for depth
 
 The companion `*-notes.md` files are the real documentation. Each one captures intuition, design decisions, and lessons learned for one stage:
@@ -162,6 +198,10 @@ The companion `*-notes.md` files are the real documentation. Each one captures i
 | `notes/retrieval-notes.md` | pressure-tests of the retrieval design, real failure modes observed, why cross-company questions break naive top-k |
 | `notes/generation-notes.md` | the citation contract and how it's enforced, the hybrid refusal gate, prompt-injection defense by role discipline, why refusal is three-state |
 | `WHY.md` | the horizontal view — the cross-cutting design principles and "why X not Y" decisions that span all six stages |
+| `notes/advanced/eval-notes.md` | how to turn "retrieval feels better" into recall@k + MRR, and why the golden set is the real engineering |
+| `notes/advanced/eval-audit.md` | how a "regression" exposed a broken eval, and the discipline of repairing labels before trusting numbers (the stage's core lesson) |
+| `notes/advanced/reranking-results.md` | why a cross-encoder was a wash here, how a SOTA model turned out to be a broken measurement, and how to tell those apart |
+| `notes/advanced/decomposition-notes.md` | why cross-company questions break naive top-k structurally, and how round-robin decomposition fixes it (the first real win) |
 
 Together with the inline code comments, these notes are the design document. Reading them in stage order builds the same picture the code does, from a teaching perspective rather than an implementation one.
 

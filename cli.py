@@ -139,6 +139,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="minilm",
         help="Cross-encoder for --rerank: 'minilm' (default) or 'bge', or a full model name.",
     )
+    p_eval.add_argument(
+        "--decompose",
+        action="store_true",
+        help="Wrap the dense retriever in the cross-company round-robin decomposer (Experiment 7, Phase A).",
+    )
     p_eval.set_defaults(func=evaluation.run_cli)
 
     return parser

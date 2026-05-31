@@ -145,7 +145,7 @@ Caveats (so we don't over-claim):
 Once the baseline exists, each advanced pattern is a measured experiment, not a vibe:
 - **Reranking** (cross-encoder on a wide candidate set) — expect MRR to jump most.
 - **Hybrid (dense + BM25, RRF)** — expect the exact-term questions to improve, semantic ones to stay flat.
-- **Decomposition / round-robin (Experiment 7)** — expect cross-company balance to improve.
+- **Decomposition / round-robin (Experiment 7)** — expect cross-company balance to improve. **DONE (Phase A):** cross-company 0.67 → **0.94**, overall **0.79 → 0.88**, MRR flat, semantic/exact-term untouched — the first pattern to beat baseline. The eval's prediction landed exactly. See `decomposition-notes.md`.
 - (Module 05) faithfulness / answer-level eval with an LLM judge — the rung above retrieval eval.
 
 ## How to think about eval, generally

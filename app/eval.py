@@ -251,6 +251,13 @@ def run_cli(args) -> None:
         retriever = RerankingRetriever(retriever, reranker=Reranker(model_name), candidate_pool=pool)
         label = f"reranked ({key}, pool={pool})"
 
+    # Optional: wrap in the cross-company round-robin decomposer (Experiment 7, Phase A).
+    if getattr(args, "decompose", False):
+        from app.decompose import DecompositionRetriever
+
+        retriever = DecompositionRetriever(retriever)
+        label = "decomposed (round-robin)" if label == "baseline (naive dense)" else f"{label} + decomposed"
+
     rows = evaluate(retriever, golden, depth=depth)
     agg = aggregate(rows)
     _print_report(rows, agg, label=label, depth=depth)

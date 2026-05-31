@@ -44,9 +44,16 @@ The naive 7-stage pipeline is complete. We've entered the **advanced-RAG stage**
 
 **Eval harness status:** design captured in `notes/advanced/eval-notes.md`. Metrics: **recall@k + MRR**, retrieval-only (not faithfulness — that's Module 05). Baseline run done (recall@5=0.79, MRR=0.86). Plain-terms metric explainer for the user in `notes/advanced/reading-eval-metrics.md` (Q3 worked fully; Q4/Q12/Q13/Q7/Q16 queued as worked examples — currently walking through these one at a time with the user before resuming the build).
 
-### ⏸ RESUME HERE (eval audit DONE + reranking re-judged; next = decomposition / round-robin)
+### ⏸ RESUME HERE (decomposition Phase A DONE — FIRST real win; next = Phase B / LLM-judge / hybrid)
 
-**LATEST (this session) — reranking re-run on the repaired eval → verdict in:** (`reranking-results.md` → "Re-run on the REPAIRED eval")
+**LATEST (this session) — decomposition / round-robin (Experiment 7, Phase A) → THE FIRST PATTERN TO BEAT BASELINE** (`decomposition-notes.md`)
+- Built `app/decompose.py` (`DecompositionRetriever` + `round_robin_merge`), `cli.py eval --decompose`. Deterministic, no LLM. Reuses the Stage-5 `detect_companies_in_question()` primitive.
+- **Dispatch rule (the safety property):** decompose ONLY when unfiltered AND ≥2 companies named; else passthrough to the exact baseline path → single-company/semantic questions provably unchanged.
+- **Result: overall recall@5 0.79 → 0.88, MRR flat 0.91. Predicted to the decimal.** cross-company 0.67 → **0.94** (Q13 0.50→0.83 cap, Q14 0.75→1.00, Q15 0.75→1.00). **Falsification check PASSED:** semantic (0.75) + exact-term (0.92) byte-identical to baseline — zero collateral damage.
+- **Contrast that seals the stage's lesson:** a deterministic 30-line merge bought +0.09; a SOTA cross-encoder (reranking) bought nothing. Reranking reorders one competition; decomposition changes the competition structure. The eval told them apart (MRR-high/recall-low = coverage, not ordering).
+- **Known gaps (as designed):** Q7 enumeration still 0.25 (aspect-split, no tickers → Phase B); Q13 capped at 0.83 (6 rel / 5 slots).
+
+**EARLIER (this session) — reranking re-run on the repaired eval → verdict in:** (`reranking-results.md` → "Re-run on the REPAIRED eval")
 - Pool re-confirmed: `recall@50 = 1.00` still holds on repaired labels.
 - **minilm: a WASH/TRADE, not a regression.** Re-run predicted to two decimals by re-scoring the deterministic old output against new labels (recall 0.79→0.80, MRR 0.91→0.90). Wins within-company (Q7 enumeration 0.25→0.50, Q9 CUDA 0.67→1.00); loses cross-company 0.67→0.50 (cross-encoder concentrates on the dominant company, drops the other). **The old "−0.16 regression" was 100% an eval artifact — the model never changed.**
 - **bge: a HARNESS MALFUNCTION, not a domain-misfit.** Controlled isolation test (`eval/debug_bge_isolation.py`, raw logits): bge rates a clean synthetic *"GeForce RTX gaming GPUs"* sentence **−1.62** (irrelevant) while rating an irrelevant competitor-list chunk **+8.6**; minilm (same code path) is correct throughout. Ruled out saturation/batch/sign-flip/preview-trap. → old `bge 0.17` and the **"killer insight" (stronger-model-scores-worse ⇒ cosine-biased eval) are VOID.** Root cause unpinned (deferred; not needed for the verdict).
@@ -71,13 +78,14 @@ The naive 7-stage pipeline is complete. We've entered the **advanced-RAG stage**
 
 **Re-run reranking on the repaired eval — DONE** (verdict in the LATEST block at the top of RESUME HERE). minilm = wash/trade; bge = harness malfunction; both old numbers + the "killer insight" void.
 
-**THE VERY NEXT STEP — decomposition / round-robin (Experiment 7):**
-1. The trustworthy eval isolates the real failures: **cross-company Q13–15 (0.67)** and the **Q7 enumeration class (0.25)** — both the "dense collapses onto the dominant sub-topic" pattern.
-2. Whiteboard-first (Rule 1): a `DecompositionRetriever` / round-robin that splits a multi-part question (multi-company or multi-aspect), retrieves per part, and merges — composed behind the `Retriever` interface like `RerankingRetriever`.
-3. Measure against the repaired baseline (recall over `n_rel`, MRR over `n`); cross-company + Q7 are where it should move.
-4. **LATER** (separate session): LLM-as-judge as the deeper fix for the 6 representative questions; optionally pin bge's root cause; hybrid (BM25+RRF) — though the golden set predicts only a modest hybrid win on this corpus.
+**THE NEXT STEP — pick one (decomposition Phase A is DONE):**
+1. **Decomposition Phase B — LLM query decomposition.** Targets the still-broken Q7 enumeration class (0.25) and the general "entities not named" case that Phase A's keyword detection can't reach. Adds an LLM call + latency + nondeterminism — measure whether the generality is worth it. (Could also try a non-LLM aspect heuristic first.)
+2. **Apply decomposition inside `ask`** (not just `eval`) so cross-company *answers* improve, and re-check Stage 6 Finding 2 (the cross-company partial-answer self-contradiction).
+3. **LLM-as-judge eval** — the deeper fix for the 6 representative questions; bridges to Module 05. Bigger, separate session.
+4. **Hybrid (BM25 + RRF)** — lower priority; golden set predicts only a modest win on this corpus.
+5. Optional: pin bge's root cause.
 
-**Advanced notes:** `eval-notes.md` (harness + findings 1–4; baseline marked superseded), `eval-audit.md` (the fixed-key repair: Findings A/B/C + repaired baseline), `reading-eval-metrics.md` (metric explainer), `reranking-pool-sweep.md` (depth sweep), `reranking-results.md` (⚠️ old conclusions superseded — see its final section "Re-run on the REPAIRED eval" for the real verdict + the retraction of the "killer insight").
+**Advanced notes:** `eval-notes.md` (harness + findings 1–4; baseline marked superseded), `eval-audit.md` (the fixed-key repair: Findings A/B/C + repaired baseline), `decomposition-notes.md` (Experiment 7 Phase A — design + predictions-vs-reality, **first pattern to beat baseline**), `reading-eval-metrics.md` (metric explainer), `reranking-pool-sweep.md` (depth sweep), `reranking-results.md` (⚠️ old conclusions superseded — see its final section "Re-run on the REPAIRED eval" for the real verdict + the retraction of the "killer insight").
 
 **Note:** curriculum reframe (interview/career → deep-learning focus) is **done + validated clean** across both repos; `06-career/` → `06-ai-native/`.
 
