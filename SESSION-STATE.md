@@ -44,9 +44,18 @@ The naive 7-stage pipeline is complete. We've entered the **advanced-RAG stage**
 
 **Eval harness status:** design captured in `notes/advanced/eval-notes.md`. Metrics: **recall@k + MRR**, retrieval-only (not faithfulness — that's Module 05). Baseline run done (recall@5=0.79, MRR=0.86). Plain-terms metric explainer for the user in `notes/advanced/reading-eval-metrics.md` (Q3 worked fully; Q4/Q12/Q13/Q7/Q16 queued as worked examples — currently walking through these one at a time with the user before resuming the build).
 
-### ⏸ RESUME HERE (decomposition Phase A = win, Phase B = instructive loss; next = Phase B+ / LLM-judge / hybrid)
+### ⏸ RESUME HERE (decomposition arc CONCLUDED + shipped into `ask`; next = LLM-judge / hybrid / Q7 grounding)
 
-**LATEST (this session) — decomposition Phase B (LLM query decomposition) → LOST, instructively** (`decomposition-notes.md`, `app/llm_decompose.py`, `cli.py eval --llm-decompose`, cache `data/decomp_cache.json`)
+**Phase A is now SHIPPED into `ask` (default-on)** — `generate.run_cli` wraps the retriever in `DecompositionRetriever`. **Stage 6 Finding 2 closed end-to-end:** unfiltered "How do Tesla and NVIDIA describe their AI investments?" now retrieves balanced 2 TSLA + 3 NVDA (5/6 golden chunks = measured 0.83) and the generator returns a *full comparative* answer citing both companies (was NVDA-only/partial). Audit clean, confidence gate fine. Single-company/filtered questions unchanged (dispatch passthrough).
+
+**WHY.md updated** — new **Principle 6 "Measure before you reach for the bigger tool"** (the advanced-stage spine: 4× the fancier tool lost the measurement); "what's next" refreshed (Exp 7 + reranking now measured, not queued). README has the spine callout.
+
+**Decomposition arc — final scoreboard** (`decomposition-notes.md`): **Phase A (deterministic keyword+filter) = 0.88, the winner.** Phase B (LLM, no filter) 0.76–0.78 (lost). Phase B+ (LLM + per-sub filter) **0.81** — beat baseline but still < A. Model sweep (haiku vs opus) +0.02, capability not the lever. **Every LLM variant lost to 30 deterministic lines.**
+- **B+ decisive insight:** even with the filter restoring the partition, the LLM's *reworded sub-query text* ranks the right company's chunks worse than the original question (Q14 misses 0114, Q13 misses 0012 — both Phase A got). **Phase A's quiet genius: it never touched the query text — same question, swapped filter.** The LLM's rewriting was a liability.
+- **The value was entirely the two deterministic pieces** (company filter + round-robin merge), both of which A had for free. The LLM's only unique capability (aspect-split for Q7) never fired (grounding problem); Q7 stayed 0.25 throughout.
+- **Shipped cross-company solution = Phase A.** Flags built: `--llm-decompose`, `--decomposer {haiku,sonnet,opus}`, `--sub-filter`. Per-model split cache in gitignored `data/decomp_cache.json`.
+
+**EARLIER (this session) — decomposition Phase B (LLM query decomposition) → LOST, instructively** (`decomposition-notes.md`, `app/llm_decompose.py`, `cli.py eval --llm-decompose`, cache `data/decomp_cache.json`)
 - General LLM splitter (Haiku, cached, structured tool-use, fallback). **Result: 0.79 → 0.76 — below baseline, 0.12 under Phase A's 0.88. Q7 never moved.**
 - **Two failures (from the cache):** (1) **Q7 under-decomposition** — Haiku returned it as ONE sub-query; never inferred the {used cars/energy/leasing/services} aspects. (2) **Cross-company degraded 0.67→0.56** — the LLM split correctly by company, but **pure-text sub-queries with NO hard filter** retrieved worse than Phase A and even worse than the undecomposed baseline (Q15 0.75→0.25). Atomics held (no over-split collateral).
 - **Lesson:** Phase A's win was the **hard `ticker=` filter**, not the round-robin. Decomposing without a partition guarantee can be *worse* than not decomposing. A general LLM tool lost head-to-head to 30 deterministic lines — knowable only because the eval is trustworthy.

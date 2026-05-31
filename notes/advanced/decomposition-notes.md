@@ -200,12 +200,51 @@ Swapped the decomposer Haiku → Opus (`--decomposer {haiku,opus}`, splits cache
 
 **Stage meta-lesson, third confirmation:** the fancier/pricier component keeps NOT winning the measurement — reranking>dense (no), LLM-decompose>keyword-decompose (no), Opus>Haiku (+0.02, still a loss). The real levers here are cheap: a hard partition filter (mechanism) and grounding/prompting (task design), not raw model power. (Minor side-finding: terse sub-query phrasing beat verbose "…in its 10-K filing" phrasing — sub-query *style* matters a little.)
 
+## Phase B+ — LLM split + per-sub-query company filter
+
+**Idea:** Phase B proved the LLM *splits* fine; the *execution* broke (filterless retrieval). B+ keeps the LLM for the split (axis + count) and borrows Phase A's hard filter for the retrieval. Best-of-both: LLM generality for the decision, deterministic filter for execution.
+
+**Mechanism** (`LLMDecompositionRetriever(filter_subqueries=True)`, flag `--sub-filter`): after the LLM splits, for each sub-query run `detect_companies_in_question(sub)` — if it names **exactly one** company, hard-filter that sub-query's retrieval to that ticker; if it names **zero** (an aspect), retrieve text-only. The caller's `--company` always wins. Then round-robin merge as before.
+
+**Free to run:** the decomposition is unchanged from Phase B, so B+ reuses the **cached** splits (`--decomposer opus` reads the cached Opus splits) — no new API calls, only retrieval changes.
+
+### Predictions (fill actuals after `eval --llm-decompose --sub-filter --decomposer opus`)
+
+| | Phase B (opus) | **Phase B+ predicted** | Phase A |
+|---|---|---|---|
+| cross-company | 0.64 | **~0.83–0.94** (filter restores the partition) | 0.94 |
+| Q7 | 0.25 | **0.25** (single sub-query → passthrough; B+ can't fix grounding) | 0.25 |
+| atomic | unchanged | unchanged | — |
+| overall | 0.78 | **~0.85–0.88** (recovers toward Phase A) | 0.88 |
+
+**The question B+ answers:** does it *match* Phase A (proving the filter was the entire load-bearing piece), or land slightly off because the LLM's sub-query *text* ranks within-company differently than A's full-question text? Either way it isolates the filter as the cause of B's regression.
+
+### Phase B+ — ACTUALS (`eval --llm-decompose --sub-filter --decomposer opus`)
+
+```
+overall        recall@5=0.81 recall@10=0.93 (n_rel=10)  ·  hit@5=1.00 MRR=0.91 (n=16)
+cross-company  recall@5=0.72 recall@10=0.92 (n_rel=3)
+```
+
+| | baseline | Phase B (opus) | **Phase B+** | Phase A |
+|---|---|---|---|---|
+| overall | 0.79 | 0.78 | **0.81** | **0.88** |
+| cross-company | 0.67 | 0.64 | **0.72** | 0.94 |
+| Q7 | 0.25 | 0.25 | 0.25 | 0.25 |
+
+**Result: the filter helped but did NOT recover Phase A — and the prediction (cross ~0.83–0.94) was too optimistic; actual 0.72.** Two takeaways:
+
+1. **Failure 2 confirmed as the filter.** B → B+ (0.64 → 0.72 cross, 0.78 → 0.81 overall) flipped the LLM path from net-negative (B < baseline) to net-positive (B+ > baseline). The missing hard filter was the cause of B's regression.
+2. **The decisive insight — query rewording is a liability.** Even with the filter ON (correct partition), B+ still ranks the right company's chunks out of the window: Q14 misses `0114` (TSLA) and Q13 misses `0012` (NVDA) — both of which Phase A retrieved. The only remaining difference is the *query text*: Phase A ran the **original question** through per-company filters; B+ ran the LLM's **reworded sub-query** through the same filter. The narrower LLM phrasing ranks within-company *worse* than the original question. **Phase A's quiet genius was that it never touched the query text** — same question, swapped filter. The LLM's "understanding" was a liability, not an asset.
+
+**Decomposition arc, concluded:** every LLM variant (B haiku/opus, B+) lost to the 30-line deterministic Phase A (0.88). All the value came from the two *deterministic* pieces — the company filter and round-robin merge — both of which A already had for free. The LLM added cost, nondeterminism, and worse query text; its one unique capability (aspect-splitting for Q7) never fired (grounding problem). **Fourth stage-confirmation that the fancier tool keeps losing the measurement** (reranking>dense, bge>minilm, opus>haiku, llm-decompose>keyword-decompose — all "no"). **Shipped cross-company solution remains Phase A.**
+
 ## Future experiments queue
 
 - **Phase B+ = LLM split + per-sub-query company filter (NOW DATA-JUSTIFIED).** Reuse `detect_companies_in_question()` on each sub-query; if it names exactly one company, apply Phase A's hard `ticker=` filter. Predicted: restores cross-company to ~Phase A's 0.94 (the filter — the load-bearing part — comes back) while keeping LLM generality for aspect-splits. Leaves Q7 unfixed (that's decomposition *quality*, not retrieval).
 - **Q7 / implicit-enumeration fix** — Haiku under-split it. Options: a stronger decomposer (Opus) for splitting; few-shot examples of aspect-splits in the prompt; or **retrieve-then-expand** (a first retrieval pass surfaces the aspects, then decompose) — the principled but heavier route.
 - **RRF merge** as an alternative to round-robin if/when a question needs rank-weighted (not equal) balance.
-- **Apply decomposition inside `ask`** (not just `eval`) so cross-company *answers* improve, not just retrieval — and re-check Stage 6 Finding 2 (the cross-company partial-answer case).
+- ~~**Apply decomposition inside `ask`**~~ → **DONE (default-on).** `generate.run_cli` now wraps the base retriever in `DecompositionRetriever` (one line; dispatch makes it a no-op for single-company/filtered questions). **Finding 2 closed end-to-end:** `ask "How do Tesla and NVIDIA describe their AI investments?"` (unfiltered) now retrieves a balanced 2 TSLA + 3 NVDA (5 of 6 golden chunks = the measured 0.83 recall@5), and the generator returns a *full comparative* answer citing both companies — where the Stage 6 baseline returned NVDA-only and partial-answered. The retrieval-eval gain translated directly into a fuller answer; citation audit stayed clean; confidence gate (top-1 0.7625) unaffected.
 
 ## How to think about this, generally
 

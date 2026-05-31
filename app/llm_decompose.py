@@ -25,6 +25,7 @@ import json
 
 from app.config import config
 from app.decompose import round_robin_merge
+from app.retrieve import detect_companies_in_question
 
 # Decomposer model shorthands (full model names also accepted). Splitting is a
 # cheap task -> Haiku by default; opus/sonnet are here to A/B decomposition
@@ -128,9 +129,13 @@ class LLMDecompositionRetriever:
     Honors the base `.retrieve()` contract, so it's a drop-in for eval/ask.
     """
 
-    def __init__(self, base, model: str | None = None):
+    def __init__(self, base, model: str | None = None, filter_subqueries: bool = False):
         self._base = base
         self._model = model or config.decomposer_model
+        # Phase B+: hard-filter any sub-query that names exactly one company to
+        # that ticker (recovers Phase A's partition guarantee); aspect sub-queries
+        # with no company stay text-only. See notes/advanced/decomposition-notes.md.
+        self._filter_subqueries = filter_subqueries
         self._client = None  # lazy — the anthropic SDK import is heavy
         self._cache = _load_cache(self._model)
 
@@ -172,11 +177,29 @@ class LLMDecompositionRetriever:
         _save_cache(self._model, self._cache)
         return subs
 
+    def _subquery_company(self, sub: str, caller_company: str | None) -> str | None:
+        """The ticker filter to use for one sub-query.
+
+        The caller's --company always wins. Otherwise, in Phase B+ mode, a
+        sub-query that names EXACTLY one company is hard-filtered to it; a
+        sub-query naming zero (an aspect) or two+ companies stays unfiltered.
+        """
+        if caller_company is not None:
+            return caller_company
+        if self._filter_subqueries:
+            detected = detect_companies_in_question(sub)
+            if len(detected) == 1:
+                return next(iter(detected))
+        return None
+
     def retrieve(self, question: str, k: int = 5, company: str | None = None) -> list[dict]:
         subs = self.decompose(question)
         # Atomic -> passthrough, identical to baseline for that question.
         if len(subs) <= 1:
             return self._base.retrieve(question, k=k, company=company)
-        # Multi-part: retrieve each sub-query (caller's filter propagated), merge.
-        per_sub = {sub: self._base.retrieve(sub, k=k, company=company) for sub in subs}
+        # Multi-part: retrieve each sub-query (Phase B+ may hard-filter per company), merge.
+        per_sub = {
+            sub: self._base.retrieve(sub, k=k, company=self._subquery_company(sub, company))
+            for sub in subs
+        }
         return round_robin_merge(per_sub, k)

@@ -264,8 +264,9 @@ def run_cli(args) -> None:
 
         key = getattr(args, "decomposer", None) or "haiku"
         model_name = DECOMPOSER_MODELS.get(key, key)  # shorthand or a full model name
-        retriever = LLMDecompositionRetriever(retriever, model=model_name)
-        tag = f"llm-decomposed ({key})"
+        sub_filter = getattr(args, "sub_filter", False)
+        retriever = LLMDecompositionRetriever(retriever, model=model_name, filter_subqueries=sub_filter)
+        tag = f"llm-decomposed ({key}{'+filter' if sub_filter else ''})"
         label = tag if label == "baseline (naive dense)" else f"{label} + {tag}"
 
     rows = evaluate(retriever, golden, depth=depth)

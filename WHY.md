@@ -52,13 +52,26 @@ This is why every threshold in the system (the 0.52/0.58 refusal bands, the conf
 
 Real failure modes are documented as observations, not papered over, because a limitation you can name is one you can design around. Three that matter across stages:
 
-- **Pure top-k can't answer cross-company comparisons** (retrieval Finding 2). "How do Tesla and NVIDIA describe their AI investments?" returns 5 NVIDIA chunks and 0 Tesla, because NVIDIA's AI prose embeds harder against the query. No prompt can fix this — the generator can only ground in what it's shown. The structural cure is per-company round-robin retrieval (Experiment 7), which lives *upstream* of generation.
+- **Pure top-k can't answer cross-company comparisons** (retrieval Finding 2). "How do Tesla and NVIDIA describe their AI investments?" returns 5 NVIDIA chunks and 0 Tesla, because NVIDIA's AI prose embeds harder against the query. No prompt can fix this — the generator can only ground in what it's shown. The structural cure is per-company round-robin retrieval (Experiment 7) *upstream* of generation — **now built and default-on in `ask`**, so that question returns a balanced 2-Tesla/3-NVIDIA retrieval and a full comparative answer (advanced stage; `notes/advanced/decomposition-notes.md`).
 - **Score compression** (Principle 4) means absolute thresholds are a calibration problem, never a guessable constant.
 - **Refusal is three-state, not binary** (generation Finding C). Answer / partial / refuse — keyed to "do the chunks answer the part the user asked?", not "is there any related content?" A question can retrieve high-similarity chunks and still warrant a refusal (asking for Tesla's risks but filtered to Apple), and a topically-near retrieval with the specific fact absent (the CEO's address) must refuse rather than partial-answer.
 
 The discipline underneath all three: **debug retrieval first, prompts last.** If retrieval is good, prompting is easy; if retrieval is poor, no prompt rescues it.
 
 *Check yourself:* Why does removing the `--company` filter on a "compare X and Y" question produce a *single*-company answer instead of a balanced one? — Give one question that retrieves with high similarity but should still be refused, and say why.
+
+### 6. Measure before you reach for the bigger tool
+
+The advanced stage (post-Stage-7) added the thing this project deliberately lacked: a retrieval eval harness — recall@k + MRR over a hand-labeled golden set (`notes/advanced/eval-notes.md`). Its first job was a baseline; its real job turned out to be a bullshit detector. Four times, the intuitive upgrade — the more powerful, more expensive, more "obviously better" component — was tried, and four times the measurement said **no**:
+
+- **reranking (cross-encoder) > dense** → no: a wash/trade on this corpus, not the playbook's "biggest win."
+- **bge (SOTA reranker) > minilm** → no: bge was a *broken measurement* in our harness, not a better model — caught only by a controlled raw-logit isolation test, not by trusting the aggregate.
+- **Opus > Haiku (as the query decomposer)** → no: +0.02 for ~10× the cost; it echoed the hard question unchanged, same as Haiku.
+- **LLM query decomposition > a deterministic keyword split** → no: the LLM lost *even after* we handed it the same hard filter, because its *reworded* sub-queries ranked the right chunks worse than the original question did.
+
+The two changes that actually moved retrieval were cheap: **repairing the eval's labels** (a single mislabeled golden answer was inflating a "regression" and masquerading as a ~0.05 metric shift) and **~30 deterministic lines** (per-company round-robin, Experiment 7). Twice over, "the model is bad" turned out to be "the eval is wrong" — a label error, then a harness bug. The discipline is the inverse of the usual instinct: **don't reach for the more powerful tool until a trustworthy measurement says the simpler one isn't enough — and when a result surprises you, suspect the measurement before the model.** Full arc in `notes/advanced/` (`eval-audit.md`, `reranking-results.md`, `decomposition-notes.md`).
+
+*Check yourself:* We saw a SOTA reranker score near-random and a 10×-pricier decomposer add only +0.02 — in each case, what's the *first* thing to check, the model or the measurement, and why? — Phase A (keyword split + filter) beat an LLM decomposer that was handed the *same* filter; what was the LLM's reworded query costing us that the original question didn't?
 
 ---
 
@@ -91,15 +104,18 @@ What a real eval harness would add, and why it's the right next rung: a golden s
 
 ## What's next / the production gap
 
-The fixes are queued with reasons, so "what's missing" is a roadmap rather than a surprise. In rough priority:
+The fixes are queued with reasons, so "what's missing" is a roadmap rather than a surprise. The advanced stage has now *measured* the first few (eval harness built; Principle 6); the rest stay queued.
 
-- **Experiment 7 — round-robin retrieval.** The structural cure for Finding 2: detect multiple named companies, run one filtered query each, reserve slots, merge. The only way to make cross-company comparisons answerable.
+**Measured (advanced stage — see `notes/advanced/`):**
+- **Experiment 7 — round-robin retrieval** → **shipped (Phase A), recall@5 0.79 → 0.88.** Detect multiple named companies, run one filtered query each, reserve slots, merge. The structural cure for Finding 2, and the stage's biggest win. (An LLM-decomposition variant, Phase B/B+, *lost* to it — Principle 6.)
+- **Cross-encoder re-rank on top-50** → **measured a wash** on this corpus (minilm 0.79→0.80; bge a harness bug). Not the playbook's promised win here.
+
+**Still queued (hypothesis, not checkbox):**
+- **Q7 / aspect-enumeration via retrieve-then-expand** — the one decomposition lever left unrealized: ground the split in a first retrieval pass instead of asking a blind LLM to enumerate.
+- **Hybrid retrieval (dense + BM25)** — dense handles paraphrase, sparse handles exact identifiers ("Item 1A", specific dollar amounts). The golden set predicts only a *modest* win here (exact terms in these filings sit in semantically-similar prose).
 - **MMR (diversity-aware selection)** to cut the "four adjacent chunks" over-retrieval problem.
-- **Cross-encoder re-rank on top-50** for a precision boost on technical text.
-- **Hybrid retrieval (dense + BM25)** — dense handles paraphrase, sparse handles exact identifiers ("Item 1A", specific dollar amounts) that embeddings miss.
-- **HyDE** — embed a hypothetical answer instead of the short query, to close the query/document distribution gap.
-- **A domain-tuned embedder** (e.g. `voyage-finance-2`) and **per-section context prefixes** on chunks before embedding.
-- **Promote `partial` to a first-class return signal** (generation Finding C follow-up) so answer/partial/refuse is structured data, not prose.
+- **LLM-as-judge eval** — score whatever is returned for relevance (no fixed key); the deeper fix for the broad "representative-label" questions the fixed-key harness can't grade fairly.
+- **HyDE**; **a domain-tuned embedder** (`voyage-finance-2`) + **per-section context prefixes**; **promote `partial` to a first-class return signal** (generation Finding C follow-up).
 
 Each of these is a deliberate experiment with a hypothesis, not a checkbox — which is the whole point of building the substrate first and measuring before adding machinery.
 

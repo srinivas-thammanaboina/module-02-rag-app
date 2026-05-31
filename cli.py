@@ -155,6 +155,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="LLM for --llm-decompose: 'haiku' (default), 'sonnet', 'opus', or a full model name.",
     )
+    p_eval.add_argument(
+        "--sub-filter",
+        dest="sub_filter",
+        action="store_true",
+        help="Phase B+: hard-filter each LLM sub-query that names one company to that ticker. Only used with --llm-decompose.",
+    )
     p_eval.set_defaults(func=evaluation.run_cli)
 
     return parser

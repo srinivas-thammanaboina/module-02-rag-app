@@ -266,8 +266,15 @@ def run_cli(args) -> None:
         print(f"  WARNING: question mentions {sorted(mentioned)}, but --company={company} was set.")
         print(f"  The filter will win — retrieval will return {company} content.")
 
-    # Retrieve.
-    retriever = Retriever(get_vector_store())
+    # Retrieve. Phase A decomposition is on by default: a cross-company question
+    # (unfiltered + >=2 companies named) gets balanced per-company round-robin
+    # retrieval, so the generator sees BOTH sides and can answer fully instead of
+    # partial (closes Stage 6 Finding 2). The dispatch makes it a no-op for
+    # single-company / --company-filtered questions — identical to before.
+    # See notes/advanced/decomposition-notes.md.
+    from app.decompose import DecompositionRetriever
+
+    retriever = DecompositionRetriever(Retriever(get_vector_store()))
     chunks = retriever.retrieve(question, k=k, company=company)
 
     print()

@@ -184,8 +184,18 @@ After the naive pipeline was complete, the project entered an **eval-first** adv
 |---|---|---|
 | Reranking — `minilm` cross-encoder | 0.80 | wash/trade — no net gain on this corpus |
 | Reranking — `bge` cross-encoder | 0.19 | broken measurement (harness issue), not a model verdict |
-| **Decomposition Phase A — cross-company round-robin** | **0.88** | **first real win; cross-company 0.67 → 0.94** |
-| Decomposition Phase B — LLM query decomposition | 0.76 | instructive loss — generality underperformed the deterministic filter |
+| **Decomposition Phase A — cross-company round-robin** | **0.88** | **the winner; cross-company 0.67 → 0.94** |
+| Decomposition Phase B — LLM query decomposition | 0.76–0.78 | instructive loss — filterless retrieval; a 10× model (Opus) bought +0.02 |
+| Decomposition Phase B+ — LLM split + per-sub-query filter | 0.81 | beat baseline but still < Phase A — the LLM's reworded queries rank worse than the original |
+
+**The spine of the advanced stage** — every time the more powerful, more expensive, more "obviously better" tool was tried, the trustworthy eval said **no**:
+
+- reranking (cross-encoder) > dense → **no** (a wash)
+- bge (SOTA reranker) > minilm → **no** (a broken measurement, not a better model)
+- Opus > Haiku as the decomposer → **no** (+0.02 for ~10× the cost)
+- LLM decomposition > a deterministic keyword split → **no** (lost even when handed the same filter)
+
+The two changes that *did* move retrieval were cheap: **repairing the eval's labels** and **~30 deterministic lines** (Phase A round-robin). Twice, "the model is bad" turned out to be "the eval is wrong." The lesson, earned rather than asserted: **don't reach for the bigger tool until a trustworthy measurement says the simpler one isn't enough — and when a result surprises you, suspect the measurement before the model.**
 
 ## Where to read for depth
 
