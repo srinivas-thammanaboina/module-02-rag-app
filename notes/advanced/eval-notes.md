@@ -99,6 +99,8 @@ control  Q16 top-1 sim=0.5656 (noise floor — expected, no good match)
 
 **This is the number every advanced pattern must beat: recall@5 = 0.79, MRR = 0.86.**
 
+> ⚠️ **SUPERSEDED — this baseline was scored on a golden set later found to be partly mislabeled.** The reranking detour audited the eval and exposed: a wrong label on Q12 (the real answer `0138` was credited to volatility-risk chunks), and 6 broad questions with incomplete labels whose fractional recall was a fiction. After the repair (`notes/advanced/eval-audit.md`), the **trustworthy baseline is `recall@5 = 0.79 (n_rel=10)`, `MRR = 0.91 (n=16)`** — recall now averaged only over questions with a complete answer set (`recall_reliable: true`); hit@5/MRR over all 16. The recall headline coincidentally still reads 0.79 but is over a different population; MRR rose 0.86→0.91 entirely from the single Q12 label fix. **All advanced patterns are measured against the repaired baseline, not this one.**
+
 ### Finding 1 — MRR is highest exactly where recall is worst
 
 Cross-company: **MRR = 1.00 but recall@5 = 0.67.** MRR only asks "is the *first* relevant chunk early?"; for a comparison question the dominant company's chunk ranks #1 (MRR perfect) while half the answer is still missing (recall poor). Reporting MRR alone (0.86 overall, "looks great") would have *hidden* the cross-company weakness entirely. Lesson: **metric choice is per-question-type** — MRR for "find the one best chunk", recall for enumeration/comparison. This is the whole justification for reporting both.

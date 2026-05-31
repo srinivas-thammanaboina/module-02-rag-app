@@ -1,5 +1,7 @@
 # Reranking experiment — results & diagnosis (the instructive failure)
 
+> ⚠️ **READ THE FINAL SECTION FIRST — major parts of this file are SUPERSEDED.** These runs were scored against a golden set later found to be mislabeled (see `eval-audit.md`). Re-running on the repaired eval (bottom section, *"Re-run on the REPAIRED eval"*) overturns two headline conclusions here: (1) the Q12 "genuine model failure" was a *label error* — the reranker was right; (2) the bge "domain-misfit / killer insight (stronger model scores worse ⇒ cosine-biased eval)" is **dead** — bge is simply *malfunctioning* in our harness (it confidently mis-ranks even a clean synthetic pair), not validly diverging from cosine. The instinct in this file — *don't trust a surprising number, look at the data* — was right; the conclusions it reached were not, because the data (labels) was itself broken.
+
 **Takeaway:** Reranking the naive dense results with a cross-encoder (`ms-marco-MiniLM-L-6-v2`, pool 50) **regressed** retrieval on our corpus: overall recall@5 dropped 0.79 → 0.63. Diagnosing *why* split the regression into two distinct causes — one a **genuine model failure**, one a **flaw in our evaluation itself**. This is the most useful result of the advanced stage so far: it's a concrete case of why production RAG "upgrades" backfire, and why eval design is as hard as the system.
 
 Setup (pool size N=50) and the depth sweep that justified it: `reranking-pool-sweep.md`.
@@ -150,3 +152,67 @@ We **cannot trust this eval to adjudicate retrieval patterns yet**. Chasing mini
 2. Broad-question labels: expand to the full valid set, or judge precise-only, or move to LLM-as-judge.
 3. Note/triage the `0116`-style mid-sentence chunk-boundary issue.
 4. Then resume reranking/hybrid/decomposition on an eval we can trust. The strongest fix is an **LLM-as-judge** eval (score whatever is returned, no fixed key) — kills the cosine-seeding bias and bridges to Module 05.
+
+---
+
+# Re-run on the REPAIRED eval (the real verdict)
+
+After the eval audit (`eval-audit.md`: Q12 re-labeled to `0138`, `recall_reliable` flag added, split-denominator aggregate), we re-ran both rerankers against the trustworthy baseline (`recall@5=0.79` n_rel=10, `MRR=0.91` n=16). This section is the authoritative one.
+
+## minilm — predictions confirmed to two decimals; it's a WASH/TRADE, not a regression
+
+**Before running, we predicted the re-run by re-scoring the OLD reranked output against the NEW labels** — because the reranker is deterministic, the reranked *retrieved ids* are identical to the prior session; only the labels + aggregation changed. The prediction held exactly:
+
+| | baseline (repaired) | minilm predicted | minilm **actual** |
+|---|---|---|---|
+| overall recall@5 (n_rel=10) | 0.79 | ~0.80 | **0.80** |
+| semantic (n_rel=3) | 0.75 | 0.83 | **0.83** |
+| exact-term (n_rel=4) | 0.92 | 1.00 | **1.00** |
+| cross-company (n_rel=3) | 0.67 | 0.50 | **0.50** |
+| MRR (n=16) | 0.91 | ~0.89 | **0.90** |
+
+**The methodological point, made concrete:** the cross-encoder's behavior never changed between the "−0.16 regression" session and now — *not one weight moved.* Only the labels did. The entire original "reranking regressed" headline was an artifact of the broken eval. This is the single cleanest demonstration in the project that **eval errors masquerade as model effects.**
+
+**The real finding — minilm is a TRADE:**
+- **Wins within-company:** Q7 enumeration `0.25→0.50` (surfaces more revenue streams), Q9 CUDA `0.67→1.00` (promotes the buried `0005`). Exact-term → 1.00.
+- **Loses cross-company:** `0.67→0.50`. Mechanism is visible in the data: for Q14 "compare Apple and Tesla supply chain," baseline missed only `0051`; reranked now misses `0084,0114` — **the cross-encoder dropped both Tesla chunks and concentrated on Apple.** A cross-encoder maximizes *per-chunk* relevance, so on a comparison it piles up whichever company scores higher and buries the other. That's not reranking's job — **it's decomposition's.**
+- **Opinionated:** reranked `recall@10` = 0.82 < baseline 0.90 — the cross-encoder lifts some relevant chunks into the top-5 while burying others below rank 10. Confidence, for better and worse.
+
+Net: on this corpus minilm reranking does **not** net-improve recall (0.79→0.80, within noise on 10 questions) and slightly lowers MRR (0.91→0.90). The advanced-RAG playbook's "add reranking first, it's the biggest win" **does not hold here** — but for a subtler reason than the original file claimed: it's a genuine wash, not a regression.
+
+## bge — a MALFUNCTION in our harness, not a domain-misfit (the old "killer insight" retracted)
+
+bge re-run on the repaired eval was still catastrophic (`recall@5=0.19`, `MRR=0.20`, `hit@5=0.44`), but the *signature* flagged a bug, not a verdict: it **nailed** the clearest exact-term (Q8 NIM, 1.00) yet **zeroed** easy questions dense+minilm ace (Q2 supply-chain, Q9 CUDA, Q17 gaming all 0.00), and its `recall@10 ≫ recall@5` everywhere (it parks relevant chunks at ranks 6–10 while filling 1–5 with distractors). Domain-misfit degrades *uniformly*; this was confident inversion.
+
+Two read-only diagnostics (`eval/debug_rerank.py`, `eval/debug_bge_isolation.py`) closed it:
+
+**Pool dump (gaming question).** bge pinned ~10 *irrelevant* chunks at sigmoid ≈ 0.9997–0.9998 and ranked the two real gaming chunks (`0019` "GeForce RTX 50… gaming"; `0011` "Gamers choose NVIDIA GPUs") at **#33 and #38** of 50. minilm, same pool, ranked them #3/#4.
+
+**Controlled isolation (raw logits, sigmoid off):**
+
+| pair (query = "NVIDIA's gaming segment products?") | minilm logit | **bge logit** |
+|---|---|---|
+| synthetic OBVIOUS gaming ("GeForce RTX… gamers buy them") | +5.52 | **−1.62** |
+| real 0019 (gaming) | +1.79 | −3.94 |
+| real 0011 (gaming) | +1.17 | −3.27 |
+| real 0041 (competition: AMD/Huawei/Intel — irrelevant) | −10.63 | **+8.61** |
+| synthetic OBVIOUS irrelevant (tax) | −11.31 | −10.20 |
+
+Diagnosis by elimination — bge's failure is **none** of the easy explanations:
+- **Not saturation noise** — raw logits span −10 to +8.6 (real, confident judgments; the sigmoid merely *hides* this by crushing everything ≥+8 to ~1.0).
+- **Not a batch effect** — isolated logit == batch logit, exactly.
+- **Not a flipped sign** — NIM ranks #1; synthetic pair is correctly ordered (gaming > tax). Orientation is right.
+- **Not a preview/label trap** — `0041`'s *full* text was read: it's the competitor-list chunk, genuinely irrelevant to "gaming products."
+- **It simply fails** — bge rates a clean, unambiguous gaming sentence as *not relevant* (−1.62) while rating the competition chunk +8.6. minilm (identical code path) is correct throughout.
+
+**Verdict:** bge-reranker-base produces **untrustworthy scores in this harness**. Therefore:
+- The old `recall@5 = 0.17` is **void** — broken measurement, not a model verdict.
+- **The "killer insight" is dead.** "A stronger reranker scoring lower ⇒ our golden set is cosine-biased" rested on (1) the Q12 label error and (2) bge's broken scores. bge was not "a better model diverging from cosine" — it was mis-ranking. The cosine-seeding-bias narrative collapses with it.
+
+**Open (deferred, not needed for the verdict):** the *root cause* of bge's misbehavior — weak checkpoint vs a `CrossEncoder`/bge usage subtlety vs a tokenization quirk — is unpinned. The measurement is untrustworthy regardless; pinning it is optional future work.
+
+## The corrected lessons
+
+1. **Eval errors masquerade as model effects.** The original "−0.16 regression" and "0.17 catastrophe" were *both* eval artifacts (a label error + a broken model harness), surviving an entire diagnosis session because no one (a) re-read the mislabeled chunk's full text or (b) tested the reranker on a controlled pair. Verify the *measurement* before theorizing about the *system*.
+2. **"Don't trust a surprising number" cuts both ways.** The original file applied it to defend a *low* number (bge 0.17 "we verified it"). But the verification stopped at "the model loads and scores one clean pair" — it never tested whether the model ranks *our* inputs sanely. A surprising number demands a controlled A/B (here: minilm vs bge on the same synthetic pair), not just a smoke test.
+3. **Reranking is corpus-dependent, and on THIS corpus it's a wash.** minilm trades within-company gains for cross-company losses; bge is unusable. The trustworthy eval points the roadmap at **decomposition/round-robin** (cross-company Q13–15 + the Q7 enumeration class) as the real next lever — measured, not assumed.

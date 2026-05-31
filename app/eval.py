@@ -114,6 +114,11 @@ def evaluate(retriever, golden: list[dict], depth: int = EVAL_DEPTH) -> list[dic
         fpool, _ = recall_at(retrieved_ids, relevant, depth)
         row.update(
             control=False,
+            # Is `relevant_ids` the COMPLETE answer set (fractional recall is fair)
+            # or just a representative sample (recall has a fake denominator —
+            # judge on hit@k/MRR only)? Set per-question in golden.jsonl; default
+            # True for backward compatibility. See notes/advanced/eval-audit.md.
+            recall_reliable=g.get("recall_reliable", True),
             n_relevant=len(relevant),
             recall5=f5,
             hit5=h5,
@@ -127,19 +132,29 @@ def evaluate(retriever, golden: list[dict], depth: int = EVAL_DEPTH) -> list[dic
 
 
 def aggregate(rows: list[dict]) -> dict:
-    """Mean metrics overall and per category, excluding the negative control."""
+    """Mean metrics overall and per category, excluding the negative control.
+
+    Fraction recall is averaged ONLY over `recall_reliable` questions — those
+    whose `relevant_ids` is the complete answer set, so the denominator is real.
+    hit@5 and MRR are averaged over ALL scored questions (they're valid even when
+    the label set is only representative). So recall and hit/MRR have DIFFERENT
+    denominators (`n_rel` vs `n`), both reported. See notes/advanced/eval-audit.md.
+    """
     scored = [r for r in rows if not r.get("control")]
 
     def _means(subset: list[dict]) -> dict | None:
         if not subset:
             return None
         n = len(subset)
+        reliable = [r for r in subset if r.get("recall_reliable", True)]
+        nr = len(reliable)
         return {
-            "n": n,
+            "n": n,                # hit@5 / MRR denominator (all scored)
+            "n_rel": nr,           # fraction-recall denominator (reliable only)
             "hit5": sum(r["hit5"] for r in subset) / n,
-            "recall5": sum(r["recall5"] for r in subset) / n,
-            "recall_pool": sum(r["recall_pool"] for r in subset) / n,
             "mrr": sum(r["mrr"] for r in subset) / n,
+            "recall5": (sum(r["recall5"] for r in reliable) / nr) if nr else None,
+            "recall_pool": (sum(r["recall_pool"] for r in reliable) / nr) if nr else None,
         }
 
     by_cat = {}
@@ -166,20 +181,38 @@ def _print_report(rows: list[dict], agg: dict, label: str, depth: int) -> None:
         if r.get("control"):
             print(f"  {r['id']:>3}  {r['category']:<15} {'—':>5} {'—':>6} {'—':>7} {'—':>5}  {q}")
             continue
-        flag = "" if r["recall5"] == 1.0 else "  ← misses in top-5: " + ",".join(
-            m.split("-")[-1] for m in r["missed5"]
-        )
+        if r.get("recall_reliable", True):
+            rec5 = f"{r['recall5']:>6.2f}"
+            recp = f"{r['recall_pool']:>7.2f}"
+            flag = "" if r["recall5"] == 1.0 else "  ← misses in top-5: " + ",".join(
+                m.split("-")[-1] for m in r["missed5"]
+            )
+        else:
+            # representative labels: show the recall number in parens to signal
+            # it is NOT aggregated (its denominator is a sample, not the answer).
+            rec5 = f"({r['recall5']:.2f})".rjust(6)
+            recp = f"({r['recall_pool']:.2f})".rjust(7)
+            flag = "  (representative labels — recall not aggregated)"
         print(
-            f"  {r['id']:>3}  {r['category']:<15} {r['hit5']:>5} {r['recall5']:>6.2f} "
-            f"{r['recall_pool']:>7.2f} {r['mrr']:>5.2f}  {q}{flag}"
+            f"  {r['id']:>3}  {r['category']:<15} {r['hit5']:>5} {rec5} "
+            f"{recp} {r['mrr']:>5.2f}  {q}{flag}"
         )
 
     print()
     print("  === AGGREGATE (excluding negative control) ===")
-    o = agg["overall"]
-    print(f"  {'overall':<16} hit@5={o['hit5']:.2f}  recall@5={o['recall5']:.2f}  recall@{depth}={o['recall_pool']:.2f}  MRR={o['mrr']:.2f}   (n={o['n']})")
+
+    def _agg_line(name: str, m: dict) -> str:
+        r5 = f"{m['recall5']:.2f}" if m["recall5"] is not None else "—"
+        rp = f"{m['recall_pool']:.2f}" if m["recall_pool"] is not None else "—"
+        # recall uses the reliable-only denominator (n_rel); hit/MRR use all (n)
+        return (
+            f"  {name:<16} recall@5={r5} recall@{depth}={rp} (n_rel={m['n_rel']})"
+            f"  ·  hit@5={m['hit5']:.2f} MRR={m['mrr']:.2f} (n={m['n']})"
+        )
+
+    print(_agg_line("overall", agg["overall"]))
     for cat, m in agg["by_category"].items():
-        print(f"  {cat:<16} hit@5={m['hit5']:.2f}  recall@5={m['recall5']:.2f}  recall@{depth}={m['recall_pool']:.2f}  MRR={m['mrr']:.2f}   (n={m['n']})")
+        print(_agg_line(cat, m))
 
     # Negative control reported on its own.
     controls = [r for r in rows if r.get("control")]

@@ -44,24 +44,40 @@ The naive 7-stage pipeline is complete. We've entered the **advanced-RAG stage**
 
 **Eval harness status:** design captured in `notes/advanced/eval-notes.md`. Metrics: **recall@k + MRR**, retrieval-only (not faithfulness — that's Module 05). Baseline run done (recall@5=0.79, MRR=0.86). Plain-terms metric explainer for the user in `notes/advanced/reading-eval-metrics.md` (Q3 worked fully; Q4/Q12/Q13/Q7/Q16 queued as worked examples — currently walking through these one at a time with the user before resuming the build).
 
-### ⏸ RESUME HERE (reranking PARKED; next = eval audit/repair)
+### ⏸ RESUME HERE (eval audit DONE + reranking re-judged; next = decomposition / round-robin)
+
+**LATEST (this session) — reranking re-run on the repaired eval → verdict in:** (`reranking-results.md` → "Re-run on the REPAIRED eval")
+- Pool re-confirmed: `recall@50 = 1.00` still holds on repaired labels.
+- **minilm: a WASH/TRADE, not a regression.** Re-run predicted to two decimals by re-scoring the deterministic old output against new labels (recall 0.79→0.80, MRR 0.91→0.90). Wins within-company (Q7 enumeration 0.25→0.50, Q9 CUDA 0.67→1.00); loses cross-company 0.67→0.50 (cross-encoder concentrates on the dominant company, drops the other). **The old "−0.16 regression" was 100% an eval artifact — the model never changed.**
+- **bge: a HARNESS MALFUNCTION, not a domain-misfit.** Controlled isolation test (`eval/debug_bge_isolation.py`, raw logits): bge rates a clean synthetic *"GeForce RTX gaming GPUs"* sentence **−1.62** (irrelevant) while rating an irrelevant competitor-list chunk **+8.6**; minilm (same code path) is correct throughout. Ruled out saturation/batch/sign-flip/preview-trap. → old `bge 0.17` and the **"killer insight" (stronger-model-scores-worse ⇒ cosine-biased eval) are VOID.** Root cause unpinned (deferred; not needed for the verdict).
+- **Diagnostic tools added:** `eval/debug_rerank.py` (pool dump), `eval/debug_bge_isolation.py` (raw-logit isolation).
+- **Roadmap now points at decomposition** (the eval's real signal: cross-company 0.67 + Q7 enumeration 0.25).
+
+**Earlier this session — eval audit/repair (the fixed-key repair):**
 
 **Done so far in the advanced stage:**
-- Golden set: 17 Qs labeled → `eval/golden.jsonl`. Eval harness: `app/eval.py` + `cli.py eval` (recall@5 hit+fraction, recall@depth, MRR, per-category, control). Baseline **recall@5=0.79, MRR=0.86**.
+- Golden set: 17 Qs labeled → `eval/golden.jsonl`. Eval harness: `app/eval.py` + `cli.py eval` (recall@5 hit+fraction, recall@depth, MRR, per-category, control).
 - Depth sweep: **recall@50 = 1.00** → problem is *ranking* not retrieval; chose pool N=50. (`reranking-pool-sweep.md`)
 - Reranking built: `app/rerank.py` (`Reranker` + `RerankingRetriever`, pool=50), eval flags `--rerank`/`--candidates`/`--reranker {minilm,bge}`.
-- **Reranking measured — both models REGRESSED:** minilm 0.79→0.63, bge 0.79→**0.17**. Diagnosed thoroughly (`reranking-results.md`).
+- Reranking measured against the OLD eval — both regressed (minilm 0.63, bge 0.17) — which **audited the eval** and proved it untrustworthy (`reranking-results.md`).
+- **EVAL AUDIT/REPAIR — DONE** (`notes/advanced/eval-audit.md`). See below.
 
-**KEY OUTCOME — the eval is not yet trustworthy.** The reranking runs acted as an adversarial audit and exposed: (1) Q12 ("does Apple pay a dividend?") has **no real answer chunk** in the corpus — all "dividend" mentions are risk/tax-framed; its labels were charitable term-matching. (2) Chunk `0116` is **cut mid-sentence** and is topically a stock-volatility-risk chunk — a chunking flaw. (3) **Label selection bias**: golden set was seeded from the cosine bi-encoder, so it's biased toward cosine-retrieved chunks — a stronger reranker that diverges from cosine scores *lower*, which is why bge (better model) scored worse. **A reranker improvement is indistinguishable from eval bias on this golden set.** Reranking is **parked, not concluded.**
+**EVAL AUDIT OUTCOME — the eval is now trustworthy (fixed-key repair complete):**
+- **Finding A (the big one):** Q12 ("does Apple pay a dividend?") was **mislabeled**, not unanswerable. The real answer is chunk **`0138`** (Capital Return Program: "$0.26/quarter cash dividend… raised from $0.25… $15.4B paid FY2025"), which **dense already ranks #1**. The old label credited `{0115,0116}` (stock-volatility-risk chunks). The reranker "regression" on Q12 was the reranker *correctly* promoting `0138`; our label punished it. → re-labeled Q12 → `[0138]`. (A hand-label error read from a one-line preview — the strongest Rule-4 lesson in the project.)
+- **Finding B:** the "`0116` mid-sentence cut" is **not a chunking bug** — 34.4% of all chunks start mid-sentence (the overlap window, by design). Re-labeling Q12 evicts `0115/0116` (used nowhere else) from the golden set, so it stops touching the eval. **No chunker change.**
+- **Finding C:** added a per-question **`recall_reliable`** flag (TRUE=complete answer set, FALSE=representative). 10 reliable / 6 representative / 1 control. `app/eval.py` now averages **fraction recall over reliable-only (`n_rel`)**, **hit@5+MRR over all (`n`)** — quarantines the fake-denominator broad questions instead of faking a number.
 
-**THE VERY NEXT STEP — eval audit/repair (whiteboard-first):**
-1. **Reclassify Q12** — no real answer in corpus → make it a control or drop it.
-2. **Broad-question labels** (Q1/Q5/Q6 etc.) — expand `relevant_ids` to the full valid set, OR mark them recall-unreliable, OR judge precise-only.
-3. **Chunking triage** — note the `0116`-style mid-sentence boundary issue (revisit chunker? or just re-label).
-4. **Consider LLM-as-judge eval** — score whatever is returned for relevance (no fixed key). Kills the cosine-seeding bias; bridges to Module 05. Likely the real fix.
-5. **THEN** resume reranking/hybrid/decomposition on an eval we can trust.
+**NEW TRUSTWORTHY BASELINE (repaired):** `recall@5 = 0.79 (n_rel=10)` · `recall@10 ceiling = 0.90` · `MRR = 0.91 (n=16)` · hit@5 = 1.00 everywhere. Per-cat: exact-term 0.92, semantic 0.75 (Q7-dominated), cross-company 0.67. (recall headline coincidentally still 0.79 but over a different population; MRR 0.86→0.91 entirely from the Q12 fix — one bad label = ~0.05 MRR.)
 
-**Advanced notes:** `eval-notes.md` (harness + findings 1–4), `reading-eval-metrics.md` (metric explainer), `reranking-pool-sweep.md` (depth sweep), `reranking-results.md` (both reranker runs + the eval-audit findings + the "stronger model scores worse = biased eval" insight).
+**Re-run reranking on the repaired eval — DONE** (verdict in the LATEST block at the top of RESUME HERE). minilm = wash/trade; bge = harness malfunction; both old numbers + the "killer insight" void.
+
+**THE VERY NEXT STEP — decomposition / round-robin (Experiment 7):**
+1. The trustworthy eval isolates the real failures: **cross-company Q13–15 (0.67)** and the **Q7 enumeration class (0.25)** — both the "dense collapses onto the dominant sub-topic" pattern.
+2. Whiteboard-first (Rule 1): a `DecompositionRetriever` / round-robin that splits a multi-part question (multi-company or multi-aspect), retrieves per part, and merges — composed behind the `Retriever` interface like `RerankingRetriever`.
+3. Measure against the repaired baseline (recall over `n_rel`, MRR over `n`); cross-company + Q7 are where it should move.
+4. **LATER** (separate session): LLM-as-judge as the deeper fix for the 6 representative questions; optionally pin bge's root cause; hybrid (BM25+RRF) — though the golden set predicts only a modest hybrid win on this corpus.
+
+**Advanced notes:** `eval-notes.md` (harness + findings 1–4; baseline marked superseded), `eval-audit.md` (the fixed-key repair: Findings A/B/C + repaired baseline), `reading-eval-metrics.md` (metric explainer), `reranking-pool-sweep.md` (depth sweep), `reranking-results.md` (⚠️ old conclusions superseded — see its final section "Re-run on the REPAIRED eval" for the real verdict + the retraction of the "killer insight").
 
 **Note:** curriculum reframe (interview/career → deep-learning focus) is **done + validated clean** across both repos; `06-career/` → `06-ai-native/`.
 
