@@ -100,6 +100,9 @@ python cli.py eval                                       # baseline (naive dense
 python cli.py eval --depth 50                            # sweep the candidate-pool ceiling
 python cli.py eval --rerank --reranker minilm            # A/B: cross-encoder reranking
 python cli.py eval --decompose                           # A/B: cross-company round-robin
+python cli.py eval --hybrid --fusion interleave          # A/B: dense + BM25 (the win)
+python cli.py eval --hybrid --fusion rrf                 # A/B: RRF fusion (the documented wash)
+python cli.py eval --hybrid --fusion interleave --hybrid-gate --decompose   # the shipped stack
 ```
 
 ## Repository layout
@@ -142,7 +145,8 @@ module-02-rag-app/
 │       ├── eval-audit.md      ← repairing the eval after reranking exposed its flaws
 │       ├── reranking-pool-sweep.md ← candidate-pool depth sweep (ranking vs retrieval problem)
 │       ├── reranking-results.md    ← reranking re-judged: wash/trade + the bge harness bug
-│       └── decomposition-notes.md  ← cross-company round-robin — the first pattern to beat baseline
+│       ├── decomposition-notes.md  ← cross-company round-robin — the first pattern to beat baseline
+│       └── hybrid-notes.md         ← dense + BM25: RRF (wash) vs interleave (win), the gate, composition
 
 ├── eval/
 │   ├── golden.jsonl           ← hand-labeled question → relevant-chunk golden set
@@ -177,8 +181,10 @@ After the naive pipeline was complete, the project entered an **eval-first** adv
 4. **Re-judged reranking on the fixed eval** — `minilm` is a wash/trade (wins within-company, loses cross-company, no net gain); the second cross-encoder (`bge`) was a *broken measurement*, not a bad model. The original "reranking regressed" headline was an eval artifact all along.
 5. **Decomposition (round-robin), Phase A — the first real win** — splitting *cross-company* questions by a deterministic keyword match, retrieving per company with a hard filter, and merging round-robin lifted recall@5 **0.79 → 0.88** with MRR flat, exactly where the eval predicted, with zero collateral damage.
 6. **Decomposition Phase B (LLM query decomposition) — an instructive loss** — replacing the keyword split with a general LLM splitter *dropped* recall to 0.76 (below baseline). The cache showed why: it under-split the hard enumeration question, and its filterless text sub-queries underperformed the hard metadata filter. Generality lost to 30 deterministic lines, head-to-head.
+7. **Diversified the golden set (v2) so a *lexical* win could even be seen** — the v1 set had `hit@5 = 1.00` on every question (dense always found *something*) — structurally blind to a keyword-retrieval win. Added a `lexical` category of opaque-token questions (TSMC, GAIN AI Act, GDPR, FDDEI…). Dense baseline on v2: recall@5 = 0.59, with lexical at **0.30** — the gap finally visible.
+8. **Hybrid retrieval (dense + BM25) — the lexical cure, with two twists** — a hand-rolled BM25 lane finds the opaque tokens dense is *blind* to (lexical recall **0.30 → 0.70**). But (a) the textbook fusion **RRF was a wash** — its one-lane cap can't surface a chunk that lives in only the sparse lane; plain **round-robin interleave** won; and (b) a df dispatch **gate looked like a wash standalone but proved *load-bearing in composition*** — it keeps BM25 off decomposition's semantic branches. Shipped stack: `Decomposition(Hybrid(interleave, gated))` — **overall recall@5 0.59 → 0.73, hit@5 0.78 → 0.91, cross-company 0.67 → 0.94.**
 
-**The throughline:** most of the work was making the *measurement* trustworthy. Twice, "the model is bad" turned out to be "the eval is wrong." And in the end a deterministic ~30-line change (decomposition Phase A) beat both a SOTA cross-encoder *and* a general LLM decomposer — because it targeted the failure the eval had actually identified (coverage), with the one mechanism that mattered (a hard partition filter), rather than the more powerful tool that was easy to assume would win.
+**The throughline:** most of the work was making the *measurement* trustworthy, then trusting it over intuition. "The model is bad" repeatedly turned out to be "the eval is wrong" (a mislabel, then a harness bug) — or "the *measurement was on the wrong bench*" (the gate, judged a wash alone, was load-bearing once composed). And every time the more powerful/celebrated component was tried — a SOTA cross-encoder, a 10× LLM decomposer, RRF fusion — the trustworthy eval said *no*; the wins were cheap and deterministic (a hard partition filter, a round-robin merge).
 
 | Pattern | recall@5 (vs trustworthy baseline 0.79) | verdict |
 |---|---|---|
@@ -188,14 +194,24 @@ After the naive pipeline was complete, the project entered an **eval-first** adv
 | Decomposition Phase B — LLM query decomposition | 0.76–0.78 | instructive loss — filterless retrieval; a 10× model (Opus) bought +0.02 |
 | Decomposition Phase B+ — LLM split + per-sub-query filter | 0.81 | beat baseline but still < Phase A — the LLM's reworded queries rank worse than the original |
 
-**The spine of the advanced stage** — every time the more powerful, more expensive, more "obviously better" tool was tried, the trustworthy eval said **no**:
+Then the golden set was diversified (v2) to expose the *lexical* gap, and hybrid retrieval measured against it (dense baseline recall@5 = **0.59**, lexical **0.30**):
+
+| Config (golden-set v2) | overall recall@5 | lexical recall@5 | verdict |
+|---|---|---|---|
+| Hybrid — RRF fusion | 0.59 | 0.40 (hit@5 stuck at 0.33) | **wash** — one-lane cap can't surface a dense-blind answer |
+| Hybrid — round-robin interleave | 0.68 | **0.70** | **the win** — guaranteed slots rescue the opaque-token chunk |
+| Hybrid — interleave + df gate | 0.68 | 0.70 | a wash *standalone* (gain/loss cancel) |
+| **Composition — `Decomposition(Hybrid(interleave, gated))`** | **0.73** | **0.70** | **shipped** — gate is *load-bearing here*; cross-company 0.67 → **0.94** |
+
+**The spine of the advanced stage** — every time the more powerful, more "obviously better" tool was tried, the trustworthy eval said **no**:
 
 - reranking (cross-encoder) > dense → **no** (a wash)
 - bge (SOTA reranker) > minilm → **no** (a broken measurement, not a better model)
 - Opus > Haiku as the decomposer → **no** (+0.02 for ~10× the cost)
 - LLM decomposition > a deterministic keyword split → **no** (lost even when handed the same filter)
+- RRF > plain round-robin interleave (hybrid fusion) → **no** (surfaced none of the dense-blind answers)
 
-The two changes that *did* move retrieval were cheap: **repairing the eval's labels** and **~30 deterministic lines** (Phase A round-robin). Twice, "the model is bad" turned out to be "the eval is wrong." The lesson, earned rather than asserted: **don't reach for the bigger tool until a trustworthy measurement says the simpler one isn't enough — and when a result surprises you, suspect the measurement before the model.**
+The changes that *did* move retrieval were cheap and deterministic: **repairing the eval's labels**, a **round-robin merge** (for cross-company *and* hybrid fusion), and a **BM25 lane** for the opaque tokens dense can't see. Two lessons, earned rather than asserted: **(1)** don't reach for the bigger tool until a trustworthy measurement says the simpler one isn't enough — and when a result surprises you, suspect the measurement before the model; **(2)** a component's value is **context-dependent** — the dispatch gate measured as a wash alone but was load-bearing once composed, so judge a part *in the stack it will run in*, not on a bench.
 
 ## Where to read for depth
 
@@ -214,6 +230,7 @@ The companion `*-notes.md` files are the real documentation. Each one captures i
 | `notes/advanced/eval-audit.md` | how a "regression" exposed a broken eval, and the discipline of repairing labels before trusting numbers (the stage's core lesson) |
 | `notes/advanced/reranking-results.md` | why a cross-encoder was a wash here, how a SOTA model turned out to be a broken measurement, and how to tell those apart |
 | `notes/advanced/decomposition-notes.md` | why cross-company questions break naive top-k structurally, and how round-robin decomposition fixes it (the first real win) |
+| `notes/advanced/hybrid-notes.md` | why dense is *blind* to opaque tokens, why RRF fusion can't rescue them but round-robin interleave can, and how the dispatch gate flips from wash to load-bearing in composition |
 
 Together with the inline code comments, these notes are the design document. Reading them in stage order builds the same picture the code does, from a teaching perspective rather than an implementation one.
 
