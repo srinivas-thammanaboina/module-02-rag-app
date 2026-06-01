@@ -158,6 +158,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="RRF constant (default 60). Larger = top ranks dominate less. Only used with --hybrid --fusion rrf.",
     )
     p_eval.add_argument(
+        "--hybrid-gate",
+        dest="hybrid_gate",
+        action="store_true",
+        help="Engage BM25 only when the query carries an opaque-identifier token; pass through to pure dense otherwise. Only used with --hybrid.",
+    )
+    p_eval.add_argument(
         "--decompose",
         action="store_true",
         help="Wrap the dense retriever in the cross-company round-robin decomposer (Experiment 7, Phase A).",

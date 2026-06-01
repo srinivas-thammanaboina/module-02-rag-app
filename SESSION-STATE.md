@@ -17,7 +17,7 @@ Building a **citation-grounded Q&A copilot over SEC 10-K filings** (per `prompt-
 - **SEC User-Agent:** placeholder in `.env` (filled in by user)
 - **CLI:** single `cli.py` with subcommands
 - **Cache raw HTML:** yes, under `data/raw/`
-- **Naive v1 pipeline stays pure dense** — hybrid/reranking/decomposition are added in the advanced stage as separate *wrappers*, never folded into v1 (hybrid/BM25 still not built)
+- **Naive v1 pipeline stays pure dense** — hybrid/reranking/decomposition are added in the advanced stage as separate *wrappers*, never folded into v1 (reranking, decomposition, **and hybrid all built**; the shipped `ask` stack = `Decomposition(Hybrid(dense))`)
 - **No clever abstractions** — mechanism must stay visible
 - **Code comments:** high-level on classes/methods + important logic only
 
@@ -40,13 +40,31 @@ The naive 7-stage pipeline is complete. The **advanced-RAG stage** is run **eval
 
 **Structure convention (decided):** advanced patterns are **new capability files composed behind the existing interfaces** — `RerankingRetriever`, `DecompositionRetriever`, `LLMDecompositionRetriever` all *wrap* the base `Retriever`. The naive v1 modules stay **untouched and runnable** as the baseline. **No `v2` copies.** Advanced notes under `notes/advanced/`.
 
-**Sequence + status:** (1) eval harness ✅ → (1b) eval audit/repair ✅ → (2) reranking ✅ (measured a wash) → (3) decomposition/round-robin Exp 7 ✅ (**Phase A shipped, the win**; B/B+ lost) → (4) hybrid (BM25+RRF) ⬜ not started. Each measured against the golden set.
+**Sequence + status:** (1) eval harness ✅ → (1b) eval audit/repair ✅ → (2) reranking ✅ (wash) → (3) decomposition Exp 7 ✅ (**Phase A shipped**; B/B+ lost) → (3b) golden set v2 ✅ (added `lexical` category — made hybrid measurable) → (4) hybrid Exp 8 ✅ (**shipped: interleave+gate in composition, the win**; RRF lost). Each measured against the golden set.
 
-**Eval harness:** `notes/advanced/eval-notes.md` + `eval-audit.md`. Metrics **recall@k + MRR**, retrieval-only (faithfulness is Module 05). **Trustworthy baseline (post-audit): recall@5 = 0.79 (n_rel=10), MRR = 0.91.** Plain-terms metric explainer in `reading-eval-metrics.md`.
+**Eval harness:** `notes/advanced/eval-notes.md` + `eval-audit.md`. Metrics **recall@k + MRR**, retrieval-only (faithfulness is Module 05). **Baselines:** v1 trustworthy = recall@5 0.79 (n_rel=10). **Golden v2 (24 Q, current): dense recall@5 = 0.59; SHIPPED stack `Decomposition(Hybrid(interleave,gated))` = 0.73 / hit@5 0.91 / cross-company 0.94 / lexical 0.70.** Plain-terms metric explainer in `reading-eval-metrics.md`.
 
-### ⏸ RESUME HERE (decomposition arc CONCLUDED + shipped into `ask`; next = LLM-judge / hybrid / Q7 grounding)
+### ⏸ RESUME HERE (hybrid arc CONCLUDED + full stack shipped into `ask`; next = enumeration / LLM-judge / Module 03)
 
-**Phase A is now SHIPPED into `ask` (default-on)** — `generate.run_cli` wraps the retriever in `DecompositionRetriever`. **Stage 6 Finding 2 closed end-to-end:** unfiltered "How do Tesla and NVIDIA describe their AI investments?" now retrieves balanced 2 TSLA + 3 NVDA (5/6 golden chunks = measured 0.83) and the generator returns a *full comparative* answer citing both companies (was NVDA-only/partial). Audit clean, confidence gate fine. Single-company/filtered questions unchanged (dispatch passthrough).
+**HYBRID (Experiment 8) DONE — the full advanced stack now ships in `ask`:** `Decomposition(Hybrid(dense, fusion="interleave", gated=True))` (generate.py). Notes: `notes/advanced/hybrid-notes.md` (project) + `ai-engineering-notes/02-rag/hybrid-retrieval.md` (theory, with the RRF one-lane-cap §3c). New code: `app/hybrid.py` (hand-rolled Okapi BM25, RRF + interleave fusion, stopword-stripped BM25 query, df rare-token gate). CLI: `eval --hybrid --fusion {rrf,interleave} --rrf-k --hybrid-gate`.
+
+**The hybrid arc, measured (golden v2, dense baseline overall recall@5=0.59):**
+- **BM25 lane hand-rolled** (no `rank_bm25` dep — the TF/IDF/length-norm math is the lesson). Company filter = restrict scoring by ticker.
+- **Stopword-strip the BM25 query** (NECESSARY): conversational words ("what/disclose") are *rare in 10-Ks* → high IDF → mislead BM25. Strip from the sparse query only (dense keeps full NL question).
+- **RRF = WASH** (overall 0.59→0.59, lexical hit@5 stuck at dense's 0.33). **The one-lane cap:** a sparse-only answer (dense is *blind* to the opaque token, e.g. FDDEI dense-rank 87) gets one RRF term (1/60) and always loses to two-lane generic chunks — structural, no `k` fixes it.
+- **Round-robin INTERLEAVE = the win** (guaranteed slots per lane): lexical recall **0.30→0.70**, hit **0.33→0.83**, overall hit@5 **0.78→0.91**.
+- **df rare-token GATE** (engage BM25 only if query has a token in ≤1% of corpus, else pure-dense passthrough): a **wash STANDALONE** (false-fires on rare ordinary words like "concentration"; trades cross-company gain for enumeration loss) — **but LOAD-BEARING IN COMPOSITION**: it keeps BM25 off decomposition's semantic comparison branches.
+- **Composition (the ship):** `Decomposition(Hybrid)` — splitter OUTERMOST so each scoped sub-query gets its own BM25 lane (reverse order runs one global BM25 that re-injects cross-company imbalance). Ungated composition leaked hybrid collateral into branches (cross-company 0.64). **Gated composition = best config: overall recall@5 0.73, hit@5 0.91, lexical 0.70, cross-company 0.94.**
+- **NEW LESSON:** a component's value is **context-dependent** — the gate was judged a wash alone, load-bearing in the stack. Measure in composition, not just standalone. (RRF stays behind its flag as the documented negative.)
+- **Residual:** Q18 TSMC still hit@5=0 (0038 is BM25 rank 8 — content words dilute the one opaque token); enumeration Q7/Q24 = decomposition Phase B's job (unbuilt).
+
+**GOLDEN SET v2 (Session 2):** 17→24 questions. Added a `lexical` category (Q18-24, opaque tokens: TSMC/GAIN AI Act/GDPR/Section 232/FDDEI/OBBBA) + reclassified Q7→enumeration. Q12 re-labeled to `0138` (audit). **This is what made hybrid measurable** — v1 had `hit@5=1.00` everywhere (couldn't see a BM25 win). Wording lesson: a semantic gloss of an opaque token neutralizes the BM25 test (Q22/Q23 re-worded to bare tokens). Corpus probe: 17/28 mined opaque tokens are dense-whiffs. Detail in `eval-notes.md` "Golden set v2".
+
+---
+
+### PREVIOUSLY SHIPPED — decomposition arc (Phase A, still in the stack)
+
+**Phase A is SHIPPED into `ask`** — now wrapped as `Decomposition(Hybrid(...))` (was `Decomposition(dense)`). **Stage 6 Finding 2 closed end-to-end:** unfiltered "How do Tesla and NVIDIA describe their AI investments?" now retrieves balanced 2 TSLA + 3 NVDA (5/6 golden chunks = measured 0.83) and the generator returns a *full comparative* answer citing both companies (was NVDA-only/partial). Audit clean, confidence gate fine. Single-company/filtered questions unchanged (dispatch passthrough).
 
 **WHY.md updated** — new **Principle 6 "Measure before you reach for the bigger tool"** (the advanced-stage spine: 4× the fancier tool lost the measurement); "what's next" refreshed (Exp 7 + reranking now measured, not queued). README has the spine callout.
 
@@ -184,7 +202,7 @@ module-02-rag-app/
 ├── WHY.md                      ← cross-cutting design rationale (the horizontal view) + self-test Q&A
 ├── SESSION-STATE.md           ← this file
 ├── prompt-instructions.md     ← original project spec
-├── cli.py                     ← all subcommands: ingest/chunk/embed/build·store·inspect/retrieve/ask + eval (advanced: --rerank/--decompose/--llm-decompose/--sub-filter/--decomposer)
+├── cli.py                     ← all subcommands; eval flags: --rerank/--decompose/--llm-decompose/--sub-filter/--decomposer/--hybrid/--fusion/--rrf-k/--hybrid-gate
 ├── notes/                     ← stage-by-stage design notes
 │   ├── ingest-observation.md  ← Stage 1
 │   ├── chunking-notes.md      ← Stage 2
@@ -198,19 +216,21 @@ module-02-rag-app/
 │       ├── reading-eval-metrics.md ← plain-terms metric explainer
 │       ├── reranking-pool-sweep.md ← depth sweep → pool N=50
 │       ├── reranking-results.md    ← reranking re-judged (wash + bge harness bug); ⚠ old parts superseded
-│       └── decomposition-notes.md  ← Experiment 7: Phase A (WIN, shipped) / B / B+ / model-sweep
+│       ├── decomposition-notes.md  ← Experiment 7: Phase A (WIN, shipped) / B / B+ / model-sweep
+│       └── hybrid-notes.md         ← Experiment 8: BM25 / RRF (wash) / interleave (win) / gate / composition (SHIPPED)
 ├── app/
 │   ├── __init__.py
 │   ├── config.py              ← config (+ decomposer_model)
 │   ├── ingest.py  chunking.py  embed.py  store.py   ← Stages 1–4
 │   ├── retrieve.py            ← Stage 5 (Retriever + detect_companies_in_question)
-│   ├── generate.py            ← Stage 6 — now wraps DecompositionRetriever (Phase A default-on)
+│   ├── generate.py            ← Stage 6 — now wraps Decomposition(Hybrid(dense)) (full stack default-on)
 │   ├── eval.py                ← ADV: retrieval eval harness (recall_reliable split-denominator)
 │   ├── rerank.py              ← ADV: Reranker + RerankingRetriever (measured a wash)
 │   ├── decompose.py           ← ADV: DecompositionRetriever + round_robin_merge (Phase A — SHIPPED)
-│   └── llm_decompose.py       ← ADV: LLMDecompositionRetriever (Phase B/B+ — lost to A)
+│   ├── llm_decompose.py       ← ADV: LLMDecompositionRetriever (Phase B/B+ — lost to A)
+│   └── hybrid.py              ← ADV: BM25Index + HybridRetriever (interleave fusion + df gate — SHIPPED)
 ├── eval/
-│   ├── golden.jsonl           ← 17-Q golden set (+ recall_reliable flags)
+│   ├── golden.jsonl           ← 24-Q golden set v2 (+ lexical category + recall_reliable flags)
 │   └── debug_rerank.py / debug_bge_isolation.py  ← reranker diagnostics
 └── data/                      ← gitignored build artifacts
     ├── raw/ clean/ chunks/ chroma/   ← cached HTML / section JSON / 678-chunk JSONL / vector store
@@ -233,17 +253,17 @@ Wrote `WHY.md`: the horizontal design-rationale doc (distinct from the vertical 
 
 ## What to do at the start of next session
 
-**Read the ⏸ RESUME HERE block at the top first** — it has the live state. The naive pipeline (Stages 1–7) *and* the first advanced pattern are done: **Phase A decomposition shipped (recall@5 0.79 → 0.88) into both `eval` and `ask`**, closing cross-company Finding 2 end-to-end. Reranking and LLM-decomposition were measured and *lost* (documented in `notes/advanced/`); the spine is WHY.md Principle 6.
+**Read the ⏸ RESUME HERE block at the top first** — it has the live state. The naive pipeline (Stages 1–7) *and* three advanced patterns are done and the **full stack `Decomposition(Hybrid(dense))` ships in `ask`**: decomposition (Phase A) + hybrid (interleave + gate). Golden v2 dense baseline 0.59 → shipped 0.73, hit@5 0.91. Reranking, RRF, and LLM-decomposition were measured and *lost* (documented in `notes/advanced/`); the spine is WHY.md Principle 6 **plus** the new "measure in composition, not standalone" lesson (the gate flipped from wash→load-bearing).
 
-Next options (all optional, none started — pick per appetite; whiteboard-first per CLAUDE.md):
-1. **Q7 grounding fix** — retrieve-then-expand for the aspect-enumeration case (Q7 still 0.25). The one unrealized decomposition lever — the only place the LLM's understanding might earn its cost.
-2. **LLM-as-judge eval** — score whatever is returned (no fixed key); the deeper fix for the 6 representative/recall-unreliable questions; bridges to Module 05.
-3. **Hybrid (BM25 + RRF)** — clean measured experiment; golden set predicts only a modest win here.
-4. **Cosmetic TODOs** — `embed.py` FutureWarning + chunk tail-preview cropping (below).
-5. **Promote `partial` to a first-class return signal** (Stage 6 Finding C follow-up).
+Next options (all optional; whiteboard-first per CLAUDE.md):
+1. **Enumeration fix (Q7/Q24)** — the last open category (recall ~0.12). Aspect-decomposition (retrieve-then-expand / sub-query per aspect); the one place LLM understanding might earn its cost. Hybrid can't help (no opaque token); decomposition Phase B territory.
+2. **Q18 TSMC residual** — hybrid's one lexical miss (0038 buried at BM25 rank 8 by content-word dilution). Entity-weighting or LLM query-understanding.
+3. **LLM-as-judge eval** — score whatever is returned (no fixed key); the deeper fix for the representative/recall-unreliable questions; bridges to Module 05.
+4. **Update WHY.md / README** — add the hybrid arc + the "measure in composition" lesson (Principle 6 currently only covers up to decomposition).
+5. **Cosmetic TODOs** — `embed.py` FutureWarning + chunk tail-preview cropping (below).
 6. **Move to Module 03 (agents)** in the curriculum.
 
-⚠ **Uncommitted at end of this session** (commit before/at next session): new `app/{decompose,llm_decompose}.py`, `notes/advanced/{eval-audit,decomposition}-notes.md`, `eval/debug_*.py`; modified `app/{eval,config,generate}.py`, `cli.py`, `eval/golden.jsonl`, `README.md`, `WHY.md`, `SESSION-STATE.md`, `notes/advanced/{eval-notes,reranking-results}.md`.
+⚠ **Uncommitted (hybrid arc — commit before/at next session):** new `app/hybrid.py`, `notes/advanced/hybrid-notes.md`, `ai-engineering-notes/02-rag/hybrid-retrieval.md`; modified `app/{eval,generate}.py`, `cli.py`, `eval/golden.jsonl` (v2: +Q18-24, Q7/Q12 re-labels), `notes/advanced/eval-notes.md` (golden v2 + Exp 8 DONE), `SESSION-STATE.md`. (Prior-session uncommitted from the decomposition arc may also still be pending — check `git status`.)
 
 ## Open teaching threads still to revisit
 

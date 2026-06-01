@@ -260,9 +260,11 @@ def run_cli(args) -> None:
         pool = getattr(args, "candidates", None) or DEFAULT_POOL
         rrf_k = getattr(args, "rrf_k", None) or DEFAULT_RRF_K
         fusion = getattr(args, "fusion", None) or DEFAULT_FUSION
-        retriever = HybridRetriever(retriever, pool=pool, rrf_k=rrf_k, fusion=fusion)
+        gated = getattr(args, "hybrid_gate", False)
+        retriever = HybridRetriever(retriever, pool=pool, rrf_k=rrf_k, fusion=fusion, gated=gated)
         knob = f"rrf_k={rrf_k}" if fusion == "rrf" else "round-robin"
-        tag = f"hybrid (BM25, {fusion}: {knob}, pool={pool})"
+        gate_tag = ", gated" if gated else ""
+        tag = f"hybrid (BM25, {fusion}: {knob}, pool={pool}{gate_tag})"
         label = tag if label == "baseline (naive dense)" else f"{label} + {tag}"
 
     # Optional: wrap in the cross-company round-robin decomposer (Experiment 7, Phase A).

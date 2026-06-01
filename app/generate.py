@@ -266,15 +266,25 @@ def run_cli(args) -> None:
         print(f"  WARNING: question mentions {sorted(mentioned)}, but --company={company} was set.")
         print(f"  The filter will win — retrieval will return {company} content.")
 
-    # Retrieve. Phase A decomposition is on by default: a cross-company question
-    # (unfiltered + >=2 companies named) gets balanced per-company round-robin
-    # retrieval, so the generator sees BOTH sides and can answer fully instead of
-    # partial (closes Stage 6 Finding 2). The dispatch makes it a no-op for
-    # single-company / --company-filtered questions — identical to before.
-    # See notes/advanced/decomposition-notes.md.
+    # Retrieve with the full advanced stack: Decomposition(Hybrid(dense)).
+    #   - Hybrid (inner): dense + BM25 fused by round-robin INTERLEAVE, GATED —
+    #     engages the BM25 lexical lane only when the query carries an opaque
+    #     identifier (acronym/name/code dense is blind to), else passes through
+    #     to pure dense. Rescues the opaque-token case (lexical recall 0.30→0.70).
+    #   - Decomposition (outer): a cross-company question (unfiltered + >=2
+    #     companies) gets balanced per-company round-robin retrieval, so the
+    #     generator sees BOTH sides (closes Stage 6 Finding 2).
+    # ORDER MATTERS: the splitter is OUTERMOST so each scoped sub-query gets its
+    # own BM25 lane; the gate keeps hybrid OUT of decomposition's semantic
+    # comparison branches (cross-company 0.64→0.94 vs ungated). Both dispatch to
+    # a no-op on single-topic / filtered questions. The measured best config —
+    # overall recall@5 0.59→0.73, hit@5 0.78→0.91. See notes/advanced/hybrid-notes.md.
     from app.decompose import DecompositionRetriever
+    from app.hybrid import HybridRetriever
 
-    retriever = DecompositionRetriever(Retriever(get_vector_store()))
+    retriever = DecompositionRetriever(
+        HybridRetriever(Retriever(get_vector_store()), fusion="interleave", gated=True)
+    )
     chunks = retriever.retrieve(question, k=k, company=company)
 
     print()

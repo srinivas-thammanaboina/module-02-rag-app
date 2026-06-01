@@ -200,7 +200,7 @@ overall        recall@5=0.59  recall@10=0.69  (n_rel=16)  ·  hit@5=0.78  MRR=0.
 
 Once the baseline exists, each advanced pattern is a measured experiment, not a vibe:
 - **Reranking** (cross-encoder on a wide candidate set) — expect MRR to jump most.
-- **Hybrid (dense + BM25, RRF)** — expect the exact-term questions to improve, semantic ones to stay flat.
+- **Hybrid (dense + BM25)** — expect lexical/opaque-token questions to improve. **DONE (Experiment 8):** lexical recall@5 **0.30 → 0.70**, hit@5 **0.33 → 0.83**. Surprises the eval forced: (a) **RRF was a wash** — its one-lane cap can't surface a chunk dense is *blind* to; plain **round-robin interleave** won. (b) A df dispatch **gate was a wash standalone but load-bearing in composition** (keeps BM25 off decomposition's semantic branches). Shipped the full stack `Decomposition(Hybrid(interleave, gated))` into `ask` — overall **0.59 → 0.73**, hit@5 **0.78 → 0.91**, cross-company **0.67 → 0.94**. See `hybrid-notes.md`.
 - **Decomposition / round-robin (Experiment 7)** — expect cross-company balance to improve. **DONE (Phase A):** cross-company 0.67 → **0.94**, overall **0.79 → 0.88**, MRR flat, semantic/exact-term untouched — the first pattern to beat baseline. The eval's prediction landed exactly. See `decomposition-notes.md`.
 - (Module 05) faithfulness / answer-level eval with an LLM judge — the rung above retrieval eval.
 

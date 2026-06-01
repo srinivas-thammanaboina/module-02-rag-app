@@ -82,6 +82,28 @@ between both during each few further here if more most no nor not only other
 over own same so some such than then there through under until up very
 """.split())
 
+# Reporting / asking verbs — query scaffolding, not content. "What does NVIDIA
+# *disclose* about X", "How does NVIDIA *describe* Y". They're low-signal like
+# function words but, being rare in formal filing prose, they'd both mislead
+# BM25 (§2) AND falsely trip the lexical gate (a rare reporting verb looking
+# like an opaque identifier). Stripped from the BM25 query and from the gate
+# signal alike. Linguistically motivated (verbs of saying), not picked by
+# inspecting which golden questions improve.
+REPORTING_VERBS = frozenset("""
+say says said tell tells told describe describes described disclose discloses
+disclosed mention mentions mentioned state states stated report reports
+reported discuss discusses discussed explain explains explained
+""".split())
+
+# Everything stripped before the BM25 lane / the lexical gate see the query.
+_QUERY_STOP = STOPWORDS | REPORTING_VERBS
+
+# A token is a candidate "opaque identifier" if it occurs in at most this
+# fraction of the corpus — rare enough to be an acronym/name/code dense is
+# likely blind to. Set on principle (~1% of chunks), NOT tuned against the
+# golden set. The gate fires when a query contains such a token.
+RARE_TOKEN_DF_FRAC = 0.01
+
 
 def _tokenize(text: str) -> list[str]:
     """Lowercase and split into alphanumeric tokens.
@@ -103,7 +125,7 @@ def bm25_query(question: str) -> str:
     bag-of-words lane wants keywords. Falls back to the original tokens if the
     question is all stopwords (so we never hand BM25 an empty query).
     """
-    content = [t for t in _tokenize(question) if t not in STOPWORDS]
+    content = [t for t in _tokenize(question) if t not in _QUERY_STOP]
     return " ".join(content) if content else " ".join(_tokenize(question))
 
 
@@ -192,6 +214,15 @@ class BM25Index:
 
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:k]
         return [(self._ids[i], s) for i, s in ranked]
+
+    @property
+    def n(self) -> int:
+        """Number of indexed chunks (the corpus size)."""
+        return self._n
+
+    def df(self, token: str) -> int:
+        """Document frequency of a token (how many chunks contain it; 0 if none)."""
+        return self._df.get(token, 0)
 
     def row(self, chunk_id: str) -> dict | None:
         """Reconstruct a result dict (document + metadata) for a chunk id.
@@ -287,16 +318,47 @@ class HybridRetriever:
     """
 
     def __init__(self, base, pool: int = DEFAULT_POOL, rrf_k: int = DEFAULT_RRF_K,
-                 fusion: str = DEFAULT_FUSION, bm25_index: BM25Index | None = None):
+                 fusion: str = DEFAULT_FUSION, gated: bool = False,
+                 bm25_index: BM25Index | None = None):
         if fusion not in FUSION_MODES:
             raise ValueError(f"fusion must be one of {FUSION_MODES}, got {fusion!r}")
         self._base = base
         self._pool = pool
         self._rrf_k = rrf_k
         self._fusion = fusion
+        self._gated = gated
         self._bm25 = bm25_index or get_bm25_index()
+        # Precompute the rare-token df ceiling from the corpus size (≥1 so a
+        # token present in a single chunk still counts as rare).
+        self._rare_max_df = max(1, round(RARE_TOKEN_DF_FRAC * self._bm25.n))
+
+    def _looks_lexical(self, question: str) -> bool:
+        """True iff the question contains an opaque-identifier token.
+
+        The dispatch guard (mirrors DecompositionRetriever's): a query is
+        "lexical" if, after stripping function/reporting words, any remaining
+        token is rare in the corpus (1 ≤ df ≤ rare ceiling) — the acronym / name
+        / code class dense tends to be blind to. df==0 doesn't count: a token in
+        NO chunk can't be rescued by BM25 either.
+        """
+        for t in _tokenize(question):
+            if t in _QUERY_STOP:
+                continue
+            if 1 <= self._bm25.df(t) <= self._rare_max_df:
+                return True
+        return False
 
     def retrieve(self, question: str, k: int = 5, company: str | None = None) -> list[dict]:
+        # Gate (optional): a purely-semantic query has nothing for BM25 to add,
+        # and forcing its slots in only displaces good dense hits (the measured
+        # collateral). So when gating is on and the query carries no opaque
+        # identifier, pass straight through to pure dense — identical to baseline.
+        if self._gated and not self._looks_lexical(question):
+            passthrough = self._base.retrieve(question, k=k, company=company)
+            for r in passthrough:
+                r["fusion"] = "dense-passthrough"
+            return passthrough
+
         # Lane 1: dense recall (wide pool). Carries cosine + document + metadata.
         dense = self._base.retrieve(question, k=self._pool, company=company)
         dense_ids = [r["id"] for r in dense]
