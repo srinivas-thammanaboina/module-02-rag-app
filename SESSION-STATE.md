@@ -17,7 +17,7 @@ Building a **citation-grounded Q&A copilot over SEC 10-K filings** (per `prompt-
 - **SEC User-Agent:** placeholder in `.env` (filled in by user)
 - **CLI:** single `cli.py` with subcommands
 - **Cache raw HTML:** yes, under `data/raw/`
-- **No hybrid search or re-ranking yet** — pure dense retrieval first
+- **Naive v1 pipeline stays pure dense** — hybrid/reranking/decomposition are added in the advanced stage as separate *wrappers*, never folded into v1 (hybrid/BM25 still not built)
 - **No clever abstractions** — mechanism must stay visible
 - **Code comments:** high-level on classes/methods + important logic only
 
@@ -34,15 +34,15 @@ Building a **citation-grounded Q&A copilot over SEC 10-K filings** (per `prompt-
 | 6 | Generate — Anthropic call with citation prompt + hybrid refusal + citation audit | **done** — 5-question run; 0 hallucinated citations; Q4/Q5 refusals; findings in `notes/generation-notes.md` |
 | 7 | `WHY.md` + `README.md` | **done** — cross-cutting design rationale (5 principles + decision log + eval-gap + experiment queue, with woven self-test Q&A); README build-status/diagram/layout updated |
 
-## Advanced stage (in progress — post Stage 7)
+## Advanced stage (post Stage 7) — eval-first; Phase A shipped
 
-The naive 7-stage pipeline is complete. We've entered the **advanced-RAG stage**, run **depth-first and eval-first** (decided with the user): build a measurement harness, then add each advanced pattern as a *measured* experiment rather than a vibe.
+The naive 7-stage pipeline is complete. The **advanced-RAG stage** is run **eval-first** (decided with the user): build a measurement harness, then add each advanced pattern as a *measured* experiment, not a vibe. Full live detail is in **⏸ RESUME HERE** below.
 
-**Structure convention (decided):** advanced patterns are added as **new capability files composed behind the existing interfaces** — e.g. a `RerankingRetriever` that *wraps* the base `Retriever`, a `HybridRetriever` that fuses a dense + a BM25 retriever via RRF. The naive v1 modules stay **untouched and runnable** as the baseline. **No `v2` copies of existing files.** Advanced notes live under `notes/advanced/`.
+**Structure convention (decided):** advanced patterns are **new capability files composed behind the existing interfaces** — `RerankingRetriever`, `DecompositionRetriever`, `LLMDecompositionRetriever` all *wrap* the base `Retriever`. The naive v1 modules stay **untouched and runnable** as the baseline. **No `v2` copies.** Advanced notes under `notes/advanced/`.
 
-**Sequence:** (1) eval harness [in progress] → (2) reranking → (3) hybrid (BM25+RRF) → (4) decomposition / round-robin (Experiment 7). Each measured against the golden set.
+**Sequence + status:** (1) eval harness ✅ → (1b) eval audit/repair ✅ → (2) reranking ✅ (measured a wash) → (3) decomposition/round-robin Exp 7 ✅ (**Phase A shipped, the win**; B/B+ lost) → (4) hybrid (BM25+RRF) ⬜ not started. Each measured against the golden set.
 
-**Eval harness status:** design captured in `notes/advanced/eval-notes.md`. Metrics: **recall@k + MRR**, retrieval-only (not faithfulness — that's Module 05). Baseline run done (recall@5=0.79, MRR=0.86). Plain-terms metric explainer for the user in `notes/advanced/reading-eval-metrics.md` (Q3 worked fully; Q4/Q12/Q13/Q7/Q16 queued as worked examples — currently walking through these one at a time with the user before resuming the build).
+**Eval harness:** `notes/advanced/eval-notes.md` + `eval-audit.md`. Metrics **recall@k + MRR**, retrieval-only (faithfulness is Module 05). **Trustworthy baseline (post-audit): recall@5 = 0.79 (n_rel=10), MRR = 0.91.** Plain-terms metric explainer in `reading-eval-metrics.md`.
 
 ### ⏸ RESUME HERE (decomposition arc CONCLUDED + shipped into `ask`; next = LLM-judge / hybrid / Q7 grounding)
 
@@ -184,28 +184,37 @@ module-02-rag-app/
 ├── WHY.md                      ← cross-cutting design rationale (the horizontal view) + self-test Q&A
 ├── SESSION-STATE.md           ← this file
 ├── prompt-instructions.md     ← original project spec
-├── cli.py                     ← Stages 1–6 wired (ingest / chunk / embed / build·store·inspect / retrieve / ask)
-├── notes/                     ← stage-by-stage design notes (moved into folder at end of Stage 5 session)
-│   ├── ingest-observation.md  ← Stage 1: 3-iteration regex diagnostic story
-│   ├── chunking-notes.md      ← Stage 2: design + Experiment 1/2 + implementation decisions
-│   ├── embedding-notes.md     ← Stage 3: intuition + BGE quirks + score-compression lesson
-│   ├── store-chroma-notes.md  ← Stage 4: numpy-vs-vectorDB framing + design decisions
-│   ├── retrieval-notes.md     ← Stage 5: pressure tests + 5-question results + Experiment 7 queued
-│   └── generation-notes.md    ← Stage 6: citation contract + hybrid refusal + injection defense + 5-question run
+├── cli.py                     ← all subcommands: ingest/chunk/embed/build·store·inspect/retrieve/ask + eval (advanced: --rerank/--decompose/--llm-decompose/--sub-filter/--decomposer)
+├── notes/                     ← stage-by-stage design notes
+│   ├── ingest-observation.md  ← Stage 1
+│   ├── chunking-notes.md      ← Stage 2
+│   ├── embedding-notes.md     ← Stage 3
+│   ├── store-chroma-notes.md  ← Stage 4
+│   ├── retrieval-notes.md     ← Stage 5 (Finding 2 cross-company — now cured by Exp 7)
+│   ├── generation-notes.md    ← Stage 6
+│   └── advanced/              ← ADVANCED STAGE — eval-first measured experiments
+│       ├── eval-notes.md          ← eval harness design (recall@k + MRR) + golden set
+│       ├── eval-audit.md          ← repairing the eval (Q12 mislabel + recall_reliable)
+│       ├── reading-eval-metrics.md ← plain-terms metric explainer
+│       ├── reranking-pool-sweep.md ← depth sweep → pool N=50
+│       ├── reranking-results.md    ← reranking re-judged (wash + bge harness bug); ⚠ old parts superseded
+│       └── decomposition-notes.md  ← Experiment 7: Phase A (WIN, shipped) / B / B+ / model-sweep
 ├── app/
 │   ├── __init__.py
-│   ├── config.py              ← central configuration (paths, tickers, model names, knobs)
-│   ├── ingest.py              ← Stage 1: EDGAR client + section-aware parser
-│   ├── chunking.py            ← Stage 2: RecursiveChunker (absorption guard + budget reseed)
-│   ├── embed.py               ← Stage 3: Embedder ABC + LocalSentenceTransformerEmbedder
-│   ├── store.py               ← Stage 4: VectorStore ABC + ChromaVectorStore
-│   ├── retrieve.py            ← Stage 5: Retriever + company-mismatch warning + confidence labels
-│   └── generate.py            ← Stage 6: Generator (hybrid refusal + citation audit) + ask CLI
+│   ├── config.py              ← config (+ decomposer_model)
+│   ├── ingest.py  chunking.py  embed.py  store.py   ← Stages 1–4
+│   ├── retrieve.py            ← Stage 5 (Retriever + detect_companies_in_question)
+│   ├── generate.py            ← Stage 6 — now wraps DecompositionRetriever (Phase A default-on)
+│   ├── eval.py                ← ADV: retrieval eval harness (recall_reliable split-denominator)
+│   ├── rerank.py              ← ADV: Reranker + RerankingRetriever (measured a wash)
+│   ├── decompose.py           ← ADV: DecompositionRetriever + round_robin_merge (Phase A — SHIPPED)
+│   └── llm_decompose.py       ← ADV: LLMDecompositionRetriever (Phase B/B+ — lost to A)
+├── eval/
+│   ├── golden.jsonl           ← 17-Q golden set (+ recall_reliable flags)
+│   └── debug_rerank.py / debug_bge_isolation.py  ← reranker diagnostics
 └── data/                      ← gitignored build artifacts
-    ├── raw/                   ← cached 10-K HTML for TSLA / AAPL / NVDA
-    ├── clean/                 ← parsed section JSON for all three
-    ├── chunks/                ← 678-chunk JSONL (TSLA 251, AAPL 149, NVDA 278)
-    └── chroma/                ← persisted vector store (8.3 MB on disk)
+    ├── raw/ clean/ chunks/ chroma/   ← cached HTML / section JSON / 678-chunk JSONL / vector store
+    └── decomp_cache.json      ← per-model LLM decomposition cache (gitignored)
 ```
 
 ## Carry-forward TODOs (small, deliberately deferred)
@@ -224,14 +233,17 @@ Wrote `WHY.md`: the horizontal design-rationale doc (distinct from the vertical 
 
 ## What to do at the start of next session
 
-The core 7-stage build is complete. Options, all optional:
+**Read the ⏸ RESUME HERE block at the top first** — it has the live state. The naive pipeline (Stages 1–7) *and* the first advanced pattern are done: **Phase A decomposition shipped (recall@5 0.79 → 0.88) into both `eval` and `ask`**, closing cross-company Finding 2 end-to-end. Reranking and LLM-decomposition were measured and *lost* (documented in `notes/advanced/`); the spine is WHY.md Principle 6.
 
-1. **Experiments** (queued below) — Experiment 7 (round-robin retrieval) is the highest-value next concept; it makes cross-company comparison questions actually answerable.
-2. **Finding C follow-up** — promote `partial` to a first-class return signal (model emits a structured tag).
-3. **Cosmetic TODOs** — `embed.py` FutureWarning + chunk tail-preview cropping.
-4. **Move to Module 03 (agents)** in the curriculum.
+Next options (all optional, none started — pick per appetite; whiteboard-first per CLAUDE.md):
+1. **Q7 grounding fix** — retrieve-then-expand for the aspect-enumeration case (Q7 still 0.25). The one unrealized decomposition lever — the only place the LLM's understanding might earn its cost.
+2. **LLM-as-judge eval** — score whatever is returned (no fixed key); the deeper fix for the 6 representative/recall-unreliable questions; bridges to Module 05.
+3. **Hybrid (BM25 + RRF)** — clean measured experiment; golden set predicts only a modest win here.
+4. **Cosmetic TODOs** — `embed.py` FutureWarning + chunk tail-preview cropping (below).
+5. **Promote `partial` to a first-class return signal** (Stage 6 Finding C follow-up).
+6. **Move to Module 03 (agents)** in the curriculum.
 
-Whichever: whiteboard-first, teach scenarios, user runs the tests (see CLAUDE.md working agreement).
+⚠ **Uncommitted at end of this session** (commit before/at next session): new `app/{decompose,llm_decompose}.py`, `notes/advanced/{eval-audit,decomposition}-notes.md`, `eval/debug_*.py`; modified `app/{eval,config,generate}.py`, `cli.py`, `eval/golden.jsonl`, `README.md`, `WHY.md`, `SESSION-STATE.md`, `notes/advanced/{eval-notes,reranking-results}.md`.
 
 ## Open teaching threads still to revisit
 

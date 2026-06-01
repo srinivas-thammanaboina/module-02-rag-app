@@ -140,6 +140,62 @@ Caveats (so we don't over-claim):
 
 **Decision:** reranking candidate pool **N = 50** (perfect ceiling; trivial cost here). Kept as a knob (`--candidates`) so we can A/B against 25.
 
+## Golden set v2 — making the BM25/enumeration gap visible (Session 2)
+
+The repaired baseline above is **trustworthy** (labels correct — see `eval-audit.md`). But trustworthy ≠ **representative**. A golden set has two independent quality axes:
+
+- **Trustworthy** — the labels are right (the chunks marked relevant really are).
+- **Representative** — the questions actually exercise the failure modes you intend to fix.
+
+v1 was trustworthy after the repair, but its `hit@5 = 1.00` on *every* scored question was a red flag, not a victory: **it contained no question dense couldn't answer at all.** A set on which dense never whiffs is structurally **incapable of showing a hybrid/BM25 win** — the same selection-bias trap as §20.2, one level up. We'd have "measured" hybrid against a ruler with no marks where the action is. Earlier in this very file (the v1 labeling note) I wrote *"this corpus barely shows the classic dense-misses-the-exact-term failure."* Session 2 proved that wrong.
+
+### The corpus probe — opaque vs transparent tokens
+
+Before adding questions, we mined the raw chunks for ~28 candidate "hard" tokens — acronyms, named acts, foreign entities, regulatory codes — and ran each through dense retrieval. **17 of 28 were dense-whiffs** (not in top-10): TSMC, GAIN AI Act, Tier 2, GDPR, CPRA, FDDEI, Section 232, OBBBA, and more. The split is sharp and explains v1's blind spot:
+
+- **Transparent tokens** — famous, well-represented in the embedder's training data (NIM, CUDA, Supercharger, Robotaxi). Dense embeds them meaningfully → ranks the answer #1–2. v1 only asked about *these*.
+- **Opaque tokens** — novel (post-training acts), pure acronyms, or buried entity names (TSMC, FDDEI, GAIN AI Act, GDPR). The embedder never learned a meaningful vector for them, so they land near the noise floor → dense whiffs. **This is the BM25 lane**, and v1 never visited it.
+
+The lesson that overturns the old note: the corpus *does* show the dense-misses-exact-term failure — you just have to ask about the **opaque** tokens, not the famous ones. The famous ones sit in semantically on-topic prose (so dense wins anyway); the opaque ones are the literal-match cases BM25 owns.
+
+### What v2 adds
+
+17 → 24 questions. New `lexical` category (6, BM25-favorable) + 1 new `enumeration` (Q24), and Q7 reclassified `semantic` → `enumeration` (it was an enumeration failure hiding in semantic — Finding 3):
+
+| # | Question | Opaque token | Dense (v2) | Owner |
+|---|---|---|---|---|
+| 18 | NVIDIA reliance on TSMC | TSMC | whiff (hit 0) | hybrid |
+| 19 | GAIN AI Act | GAIN AI Act | whiff (hit 0) | hybrid |
+| 20 | NVIDIA GDPR obligations | GDPR | whiff (hit 0) | hybrid |
+| 21 | Section 232 / Trade Expansion Act | Section 232 | partial (0.50) | hybrid |
+| 22 | NVIDIA FDDEI | FDDEI | whiff (hit 0) | hybrid |
+| 23 | One Big Beautiful Bill Act (OBBBA) | OBBBA | **found** (rank 1) | — |
+| 24 | NVIDIA end markets (each covers…) | — | whiff (hit 0) | decomposition |
+
+### The wording lesson (Q22/Q23) — a question's phrasing decides its BM25-favorability
+
+First-draft Q22 read *"…foreign-derived deduction eligible income (FDDEI)?"* and dense **found** it — because the gloss "foreign-derived deduction eligible income" is semantically rich and embeddable. Including a paraphrase of an opaque token hands dense exactly the signal the test was meant to deny it. To genuinely test BM25, the query must lean on the **bare** token. Re-worded to *"…about FDDEI?"*, Q22 flipped to a clean whiff.
+
+Q23 is the honest counter-case: stripped to *"What does the One Big Beautiful Bill Act (OBBBA) change?"*, dense **still** ranks it #1 — because "One Big Beautiful Bill Act" is four plain English words, not an opaque token. We left it as-is. A good golden set has mixed difficulty; not every `lexical` question must be a dense-killer, and faking one by truncating to "OBBBA" would be a less natural query than a real user would type.
+
+### Locked v2 baseline — naive dense retriever
+
+Run: `python cli.py eval` (depth 10; headline @5, diagnostic @10). 23 scored + 1 negative control. **This is the number hybrid and decomposition are measured against from here.**
+
+```
+overall        recall@5=0.59  recall@10=0.69  (n_rel=16)  ·  hit@5=0.78  MRR=0.69  (n=23)
+  semantic       recall@5=1.00  recall@10=1.00  (n_rel=2)   ·  hit@5=1.00  MRR=0.79  (n=7)
+  exact-term     recall@5=0.92  recall@10=1.00  (n_rel=4)   ·  hit@5=1.00  MRR=1.00  (n=5)
+  cross-company  recall@5=0.67  recall@10=0.83  (n_rel=3)   ·  hit@5=1.00  MRR=1.00  (n=3)
+  lexical        recall@5=0.30  recall@10=0.40  (n_rel=5)   ·  hit@5=0.33  MRR=0.22  (n=6)   ← HYBRID target
+  enumeration    recall@5=0.12  recall@10=0.25  (n_rel=2)   ·  hit@5=0.50  MRR=0.50  (n=2)   ← decomposition target
+  control  Q16 top-1 sim=0.5656 (noise floor — expected)
+```
+
+**The headline is that `hit@5` finally broke below 1.00 (0.78).** v1 could never show a "dense finds nothing" question; v2 has four (Q18/19/20/22 at hit@5=0). The instrument now matches the experiments: it can **discriminate hybrid** (moves `lexical`) from **decomposition** (moves `enumeration`/`cross-company`), where v1 was blind to the former entirely. Overall recall fell 0.79 → 0.59 not because retrieval got worse but because the ruler finally has marks where dense is weak.
+
+> Theory companion: `ai-engineering-notes/02-rag/hybrid-retrieval.md` (dense vs sparse, BM25 mechanics, RRF worked example, limitations).
+
 ## Future / what this unlocks
 
 Once the baseline exists, each advanced pattern is a measured experiment, not a vibe:

@@ -251,6 +251,20 @@ def run_cli(args) -> None:
         retriever = RerankingRetriever(retriever, reranker=Reranker(model_name), candidate_pool=pool)
         label = f"reranked ({key}, pool={pool})"
 
+    # Optional: wrap in hybrid (dense + BM25, fused with RRF). Targets the
+    # `lexical` category — opaque tokens the embedder never learned (eval-notes
+    # "Golden set v2"). See notes/advanced/eval-notes.md + the theory companion.
+    if getattr(args, "hybrid", False):
+        from app.hybrid import HybridRetriever, DEFAULT_POOL, DEFAULT_RRF_K, DEFAULT_FUSION
+
+        pool = getattr(args, "candidates", None) or DEFAULT_POOL
+        rrf_k = getattr(args, "rrf_k", None) or DEFAULT_RRF_K
+        fusion = getattr(args, "fusion", None) or DEFAULT_FUSION
+        retriever = HybridRetriever(retriever, pool=pool, rrf_k=rrf_k, fusion=fusion)
+        knob = f"rrf_k={rrf_k}" if fusion == "rrf" else "round-robin"
+        tag = f"hybrid (BM25, {fusion}: {knob}, pool={pool})"
+        label = tag if label == "baseline (naive dense)" else f"{label} + {tag}"
+
     # Optional: wrap in the cross-company round-robin decomposer (Experiment 7, Phase A).
     if getattr(args, "decompose", False):
         from app.decompose import DecompositionRetriever
