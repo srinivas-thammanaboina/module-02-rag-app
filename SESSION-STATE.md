@@ -226,6 +226,7 @@ module-02-rag-app/
 │   ├── retrieval-notes.md     ← Stage 5 (Finding 2 cross-company — now cured by Exp 7)
 │   ├── generation-notes.md    ← Stage 6
 │   └── advanced/              ← ADVANCED STAGE — eval-first measured experiments
+│       ├── retrieval-flow.md      ← ★ ONE-PAGE MAP: shipped pipeline decision tree + experiment scoreboard
 │       ├── eval-notes.md          ← eval harness design (recall@k + MRR) + golden set
 │       ├── eval-audit.md          ← repairing the eval (Q12 mislabel + recall_reliable)
 │       ├── reading-eval-metrics.md ← plain-terms metric explainer

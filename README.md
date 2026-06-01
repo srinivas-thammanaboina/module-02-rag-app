@@ -174,6 +174,8 @@ module-02-rag-app/
 
 ## Advanced stage — measured retrieval experiments
 
+> **Quick map:** [`notes/advanced/retrieval-flow.md`](notes/advanced/retrieval-flow.md) puts the whole stage on one page — the shipped pipeline as a decision tree (flowchart), the per-layer cheat-sheet, and the experiment scoreboard (what was tried / verdict / in-stack). Start there for a glance; the prose below tells the story.
+
 After the naive pipeline was complete, the project entered an **eval-first** advanced stage: build a measurement harness, then add each advanced-RAG pattern as a *measured* experiment rather than a vibe. Advanced patterns are composed **behind the existing `Retriever` interface** (e.g. a `DecompositionRetriever` that wraps the base retriever) — the v1 pipeline stays pristine as the baseline. Notes live in `notes/advanced/`.
 
 **The arc, one line each — this is the whole story of the stage:**
@@ -238,6 +240,7 @@ The companion `*-notes.md` files are the real documentation. Each one captures i
 | `notes/retrieval-notes.md` | pressure-tests of the retrieval design, real failure modes observed, why cross-company questions break naive top-k |
 | `notes/generation-notes.md` | the citation contract and how it's enforced, the hybrid refusal gate, prompt-injection defense by role discipline, why refusal is three-state |
 | `WHY.md` | the horizontal view — the cross-cutting design principles and "why X not Y" decisions that span all six stages |
+| `notes/advanced/retrieval-flow.md` | **the one-page map** — the shipped pipeline as a decision tree + the experiment scoreboard (read this first) |
 | `notes/advanced/eval-notes.md` | how to turn "retrieval feels better" into recall@k + MRR, and why the golden set is the real engineering |
 | `notes/advanced/eval-audit.md` | how a "regression" exposed a broken eval, and the discipline of repairing labels before trusting numbers (the stage's core lesson) |
 | `notes/advanced/reranking-results.md` | why a cross-encoder was a wash here, how a SOTA model turned out to be a broken measurement, and how to tell those apart |
