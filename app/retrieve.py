@@ -106,9 +106,12 @@ class Retriever:
         question: str,
         k: int = 5,
         company: str | None = None,
+        include_embeddings: bool = False,
     ) -> list[dict]:
         where = {"ticker": company.upper()} if company else None
-        return self._store.query(question, k=k, where=where)
+        return self._store.query(
+            question, k=k, where=where, include_embeddings=include_embeddings
+        )
 
 
 # ---------------------------------------------------------------------------

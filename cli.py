@@ -140,6 +140,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Cross-encoder for --rerank: 'minilm' (default) or 'bge', or a full model name.",
     )
     p_eval.add_argument(
+        "--mmr",
+        action="store_true",
+        help="Re-select the dense pool with MMR (diversity-aware). Targets the enumeration failure (multi-aspect questions).",
+    )
+    p_eval.add_argument(
+        "--mmr-lambda",
+        dest="mmr_lambda",
+        type=float,
+        default=None,
+        help="MMR relevance-vs-diversity dial (default 0.7; 1.0 = plain top-k, 0.0 = pure diversity). Only used with --mmr.",
+    )
+    p_eval.add_argument(
         "--hybrid",
         action="store_true",
         help="Wrap the dense retriever in hybrid (dense + BM25, fused with RRF). Targets the lexical/opaque-token category.",
@@ -184,6 +196,16 @@ def build_parser() -> argparse.ArgumentParser:
         dest="sub_filter",
         action="store_true",
         help="Phase B+: hard-filter each LLM sub-query that names one company to that ticker. Only used with --llm-decompose.",
+    )
+    p_eval.add_argument(
+        "--expand",
+        action="store_true",
+        help="Retrieve-then-expand: ground an LLM in a seed retrieval, extract aspects, re-query each. Targets enumeration (Q7/Q24).",
+    )
+    p_eval.add_argument(
+        "--expander",
+        default=None,
+        help="LLM for --expand: 'haiku' (default), 'sonnet', 'opus', or a full model name.",
     )
     p_eval.set_defaults(func=evaluation.run_cli)
 

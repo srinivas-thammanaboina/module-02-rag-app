@@ -78,8 +78,13 @@ class VectorStore(ABC):
         """Embed and upsert chunks. Returns rows written."""
 
     @abstractmethod
-    def query(self, query_text: str, k: int, where: dict | None = None) -> list[dict]:
-        """Top-k by similarity. Each row: {id, document, similarity, metadata}."""
+    def query(self, query_text: str, k: int, where: dict | None = None,
+              include_embeddings: bool = False) -> list[dict]:
+        """Top-k by similarity. Each row: {id, document, similarity, metadata}.
+
+        `include_embeddings=True` adds the chunk's stored vector under `embedding`
+        (needed by MMR, which scores chunk-to-chunk similarity — see app/mmr.py).
+        """
 
     @abstractmethod
     def count(self, where: dict | None = None) -> int:
@@ -150,12 +155,19 @@ class ChromaVectorStore(VectorStore):
 
     # --- reads ----------------------------------------------------------
 
-    def query(self, query_text: str, k: int, where: dict | None = None) -> list[dict]:
+    def query(self, query_text: str, k: int, where: dict | None = None,
+              include_embeddings: bool = False) -> list[dict]:
         q_vec = self._embedder.embed_query(query_text).tolist()
+        # Chroma omits embeddings by default (they're large); request them only
+        # when a caller (MMR) actually needs the vectors.
+        include = ["documents", "metadatas", "distances"]
+        if include_embeddings:
+            include = include + ["embeddings"]
         raw = self._collection.query(
             query_embeddings=[q_vec],
             n_results=k,
             where=where,
+            include=include,
         )
         return self._normalize_query_response(raw)
 
@@ -196,8 +208,13 @@ class ChromaVectorStore(VectorStore):
         docs = raw["documents"][0]
         dists = raw["distances"][0]
         metas = raw["metadatas"][0]
-        return [
-            {
+        # Embeddings present only when the caller asked for them. Use an identity
+        # check (not truthiness) — these are numpy arrays.
+        embs = raw.get("embeddings")
+        embs = embs[0] if embs is not None else None
+        rows = []
+        for i in range(len(ids)):
+            row = {
                 "id": ids[i],
                 "document": docs[i],
                 # cosine distance → cosine similarity. With L2-normalized
@@ -205,8 +222,10 @@ class ChromaVectorStore(VectorStore):
                 "similarity": 1.0 - float(dists[i]),
                 "metadata": metas[i] or {},
             }
-            for i in range(len(ids))
-        ]
+            if embs is not None:
+                row["embedding"] = embs[i]
+            rows.append(row)
+        return rows
 
     @staticmethod
     def _normalize_get_response(raw: dict) -> list[dict]:

@@ -1,0 +1,58 @@
+{
+  "claude-haiku-4-5": {
+    "How does Tesla generate revenue beyond vehicle sales?": [
+      "Tesla energy generation and storage revenue",
+      "Tesla used vehicle sales revenue",
+      "Tesla automotive leasing revenue",
+      "Tesla services and Supercharger charging revenue",
+      "Tesla software and subscription features revenue"
+    ],
+    "What end markets does NVIDIA serve, and what does each cover?": [
+      "Data Center end market",
+      "Gaming end market",
+      "Automotive and Robotics end market",
+      "Telecommunications end market",
+      "Healthcare and Drug Discovery end market",
+      "Financial Services end market"
+    ],
+    "What are the main risks Tesla faces?": [
+      "Tesla demand and market risks for electric vehicles and autonomous driving",
+      "Tesla production and supply chain risks",
+      "Tesla labor and workforce risks",
+      "Tesla regulatory, tax credit and government policy risks",
+      "Tesla product liability and warranty risks",
+      "Tesla reputation and public commentary risks"
+    ],
+    "What does Apple say about supply chain concentration?": [],
+    "How does NVIDIA describe its competitive position?": [],
+    "What does Tesla say about employee retention and talent?": [],
+    "What macroeconomic factors affect Apple's results?": [],
+    "What are NVIDIA's risks around supply and manufacturing?": [
+      "NVIDIA supply chain constraints and foundry capacity limitations",
+      "NVIDIA manufacturing yields and product defects",
+      "NVIDIA demand forecasting and supply-demand mismatches",
+      "NVIDIA export controls and supply impacts",
+      "NVIDIA supplier lead times and cost increases"
+    ],
+    "What is NVIDIA NIM?": [],
+    "What does NVIDIA say about CUDA?": [],
+    "What is Tesla's Supercharger network?": [],
+    "What does Tesla say about Robotaxi?": [],
+    "Does Apple pay a dividend?": [],
+    "How do Tesla and NVIDIA describe their AI investments?": [],
+    "Compare supply chain risk for Apple and Tesla.": [],
+    "How do Tesla and Apple describe regulatory/legal risk?": [],
+    "What is the CEO's home address?": [],
+    "What are NVIDIA's gaming segment products?": [],
+    "What does NVIDIA disclose about its reliance on TSMC to manufacture its chips?": [
+      "NVIDIA reliance on TSMC manufacturing",
+      "NVIDIA TSMC supply chain",
+      "NVIDIA foundry partner TSMC"
+    ],
+    "What is the GAIN AI Act and how would it affect NVIDIA?": [],
+    "What does NVIDIA disclose about its GDPR obligations?": [],
+    "What Section 232 investigation under the Trade Expansion Act does Apple disclose?": [],
+    "What does NVIDIA disclose about FDDEI?": [],
+    "What does the One Big Beautiful Bill Act (OBBBA) change?": []
+  }
+}

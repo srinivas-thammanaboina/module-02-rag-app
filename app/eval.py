@@ -241,6 +241,17 @@ def run_cli(args) -> None:
     retriever = Retriever(get_vector_store())
     label = "baseline (naive dense)"
 
+    # Optional: MMR diversity re-selection (targets the enumeration failure).
+    # Wraps the BASE dense retriever (it needs candidate vectors). See app/mmr.py.
+    if getattr(args, "mmr", False):
+        from app.mmr import MMRRetriever, DEFAULT_LAMBDA, DEFAULT_POOL
+
+        pool = getattr(args, "candidates", None) or DEFAULT_POOL
+        lam = getattr(args, "mmr_lambda", None)
+        lam = DEFAULT_LAMBDA if lam is None else lam
+        retriever = MMRRetriever(retriever, pool=pool, lambda_=lam)
+        label = f"mmr (λ={lam}, pool={pool})"
+
     # Optional: wrap the base retriever in the cross-encoder reranker (A/B).
     if getattr(args, "rerank", False):
         from app.rerank import RerankingRetriever, Reranker, RERANKER_MODELS, DEFAULT_CANDIDATE_POOL
@@ -283,6 +294,17 @@ def run_cli(args) -> None:
         sub_filter = getattr(args, "sub_filter", False)
         retriever = LLMDecompositionRetriever(retriever, model=model_name, filter_subqueries=sub_filter)
         tag = f"llm-decomposed ({key}{'+filter' if sub_filter else ''})"
+        label = tag if label == "baseline (naive dense)" else f"{label} + {tag}"
+
+    # Optional: retrieve-then-expand (grounded aspect decomposition, Experiment 9).
+    # Targets the enumeration failure MMR couldn't (Q7/Q24). See app/expand.py.
+    if getattr(args, "expand", False):
+        from app.expand import ExpandRetriever, EXPANDER_MODELS
+
+        key = getattr(args, "expander", None) or "haiku"
+        model_name = EXPANDER_MODELS.get(key, key)  # shorthand or a full model name
+        retriever = ExpandRetriever(retriever, model=model_name)
+        tag = f"expand (grounded aspects, {key})"
         label = tag if label == "baseline (naive dense)" else f"{label} + {tag}"
 
     rows = evaluate(retriever, golden, depth=depth)
