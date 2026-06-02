@@ -91,6 +91,8 @@ This one is **not** dissolved by data — it's a real structural limit. For an o
 
 **Net: 10 reliable (fractional recall fair) · 6 representative (hit@k + MRR only) · 1 control.**
 
+> ⚠️ **Update (Session 3, LLM-judge re-audit): several of the `TRUE` classifications above are wrong — Q13/14/15 (and v2's Q7/Q24) are NOT closed answer sets. The judge found genuinely-relevant on-company chunks the keys omitted. See Finding D.**
+
 ### `app/eval.py` change design (decided before coding)
 
 Small + surgical — **no metric math changes** (`recall_at`/`mrr` untouched), only *which rows feed which average*:
@@ -100,6 +102,32 @@ Small + surgical — **no metric math changes** (`recall_at`/`mrr` untouched), o
 3. **Report honestly** — aggregate line e.g. `recall@5=0.86 (n_rel=10) · hit@5=1.00 MRR=0.88 (n=16)`. Per-question table parenthesizes the recall number for `reliable: false` rows — `(0.40)` — and replaces the `← misses…` annotation (misleading for representative labels) with `(representative labels — recall not aggregated)`. Hit/MRR print normally. The reranking A/B path flows through the same two functions, so it inherits the honest treatment for free.
 
 **Consequence to internalize — THIS RESETS THE BASELINE.** The old `recall@5 = 0.79` averaged in 6 questions whose fractional recall was a fiction; the new recall@5 is over a *different, smaller, honest* set of 10, so **it is not comparable to 0.79**. From here, every advanced pattern is measured against the *new* number, on an eval we can defend.
+
+---
+
+## Finding D (Session 3) — the LLM-judge re-audit: several `reliable: true` keys are actually INCOMPLETE
+
+The deferred LLM-as-judge (now built — `app/judge.py`, `notes/advanced/llm-judge-notes.md`) was run as a grader-check against the trusted questions, and it surfaced a new label problem exactly the way the reranker surfaced Q12 — **except this time the bad labels are *incompleteness*, not a wrong pick.**
+
+**The mechanism:** for each trusted ("complete-key") question we mined the highest-ranked NON-key chunks as "known-wrong" and checked the judge rejected them. On the narrow questions it did (false-accept 0.06). On the broad **cross-company / enumeration** questions it kept saying "yes" — and **every one of those accepted chunks is ON-company and, on reading, genuinely relevant.** The key, not the judge, was wrong:
+
+- **Q13** (TSLA+NVDA AI investments) — key has 3 NVDA chunks; the filing has more (NVDA-0227 accelerated computing, 0007 Grace+Blackwell training, 0017 AI Enterprise software, …). All 7 "false-accepts" were these.
+- **Q15** (TSLA+AAPL regulatory/legal) — key omits AAPL-0094/0098/0080 (regulation/patent risk) and TSLA-0103 (legal proceedings).
+- **Q7** (Tesla revenue beyond vehicles) — key omits TSLA-0023 (app/software revenue), 0024 (service revenue) — further revenue lines.
+- Q14, Q24 — same pattern.
+
+**This refines Finding C.** Finding C marked Q13/14/15 `reliable: TRUE`, reasoning "closed cross-company enumeration." Wrong: a *cross-company* set is **not** closed — each company has many on-topic chunks, not a fixed few. The "closed enumeration" intuition held for Q7's narrow *aspect* split, not for the cross-company population. These belong with the broad semantic questions: **representative, not reliable.**
+
+**Plus a mislabel (Finding A species):** Q14's key lists `0084` and `0114` as "supply chain risk." Their text is **demand** risk ("dependent upon demand for our electric vehicles") and **talent** risk ("employees may leave Tesla") — they are labeled exactly that in Q1/Q4's keys. Hand-stretched into "supply chain"; the judge correctly rejected both (which is why Q14 recovery reads 2/4).
+
+**The judge is validated where the keys are trustworthy.** Restricted to the genuinely-complete narrow keys (exact-term + lexical), Haiku scores **recovery 1.00 / false-accept 0.06** — clears the pre-committed bar (≥0.90 / ≤0.15). The aggregate "FAIL" was an artifact of validating a key-completion tool against incomplete keys (circular). Full run detail in `llm-judge-notes.md`.
+
+**Action (Path A — in progress):**
+- Re-scope the grader-check to validate only on complete-key questions (where the judge passes), making the validation honest.
+- Re-flag / **complete** the incomplete cross-company + enumeration keys (Q7/Q13/Q14/Q15/Q24) using the judge's found chunks (spot-checked, like Q12), so the representative questions become genuinely measurable.
+- Fix Q14's mislabels (drop/recategorize 0084, 0114).
+
+**New methodological lesson:** you cannot validate a key-completion judge against keys that are themselves incomplete — validate where the labels are trustworthy, then apply the validated tool to complete the rest. And: **give the judge each chunk's company** — without it, generic risk prose is unassignable (off-company accepts went to zero once we did).
 
 ---
 
@@ -137,4 +165,4 @@ control  Q16 top-1 sim=0.5656 (noise floor — expected)
 4. ~~Re-run baseline~~ → **DONE** (repaired baseline above).
 5. ~~Re-run reranking against THIS baseline~~ → **DONE** (`reranking-results.md` → "Re-run on the REPAIRED eval"). Pool re-confirmed (`recall@50=1.00` holds). **minilm**: predictions confirmed to 2 decimals → a **wash/trade** (0.79→0.80; wins within-company, loses cross-company), NOT the old "regression." **bge**: proven a **harness malfunction** (controlled isolation test: rates a clean synthetic gaming sentence −1.62 while rating an irrelevant competition chunk +8.6) — old 0.17 + "killer insight" both **void**. The eval now points the roadmap at **decomposition**.
 6. **NEXT — decomposition / round-robin (Experiment 7).** The trustworthy eval isolates the real targets: cross-company Q13–15 (0.67) and the Q7 enumeration class (0.25). This is the measured next lever.
-7. **LATER** — LLM-as-judge (separate session) as the deeper fix for the 6 representative questions; optionally pin bge's root cause.
+7. **IN PROGRESS** — LLM-as-judge (Session 3): built (`app/judge.py`), grader-check run, **revealed Finding D** (broad keys incomplete + Q14 mislabel). Validated where keys are complete (recovery 1.00 / false-accept 0.06). **Path A:** re-scope the check + complete the broad keys with the judge → make the 7 representative questions measurable. (`llm-judge-notes.md`.) · optionally pin bge's root cause.

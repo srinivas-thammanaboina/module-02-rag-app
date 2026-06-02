@@ -26,6 +26,7 @@ from app import store     # Stage 4
 from app import retrieve  # Stage 5
 from app import generate  # Stage 6
 from app import eval as evaluation  # Advanced stage: retrieval eval harness
+from app import judge as judging    # Advanced stage: LLM-as-judge eval (key completion)
 
 
 def _not_yet(stage_name: str):
@@ -208,6 +209,45 @@ def build_parser() -> argparse.ArgumentParser:
         help="LLM for --expand: 'haiku' (default), 'sonnet', 'opus', or a full model name.",
     )
     p_eval.set_defaults(func=evaluation.run_cli)
+
+    # --- Advanced stage: judge (LLM-as-judge — complete the answer key) ---
+    p_judge = sub.add_parser(
+        "judge",
+        help="LLM-as-judge: check the grader on the 16 trusted questions, then (with --build-key) "
+             "build a fuller answer key for the 7 representative ones.",
+    )
+    p_judge.add_argument(
+        "--judge-model",
+        dest="judge_model",
+        default=None,
+        help="Labeler model: 'haiku' (default), 'sonnet', 'opus', or a full model name.",
+    )
+    p_judge.add_argument(
+        "--pool",
+        type=int,
+        default=None,
+        help=f"Candidate-pool depth per config (default {judging.DEFAULT_POOL}). Wider = more chunks judged.",
+    )
+    p_judge.add_argument(
+        "--neg-sample",
+        dest="neg_sample",
+        type=int,
+        default=None,
+        help=f"Hardest-negative chunks tested per trusted question (default {judging.DEFAULT_NEG_SAMPLE}).",
+    )
+    p_judge.add_argument(
+        "--build-key",
+        dest="build_key",
+        action="store_true",
+        help="After the check, build the fuller key for the 7 representative questions (writes a sidecar). "
+             "Gated on the check passing unless --force.",
+    )
+    p_judge.add_argument(
+        "--force",
+        action="store_true",
+        help="Build the key even if the grader check failed (not recommended).",
+    )
+    p_judge.set_defaults(func=judging.run_cli)
 
     return parser
 

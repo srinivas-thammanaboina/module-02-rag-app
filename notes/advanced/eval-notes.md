@@ -142,6 +142,8 @@ Caveats (so we don't over-claim):
 
 ## Golden set v2 — making the BM25/enumeration gap visible (Session 2)
 
+> ⚠️ **Session-3 update (LLM-judge re-audit):** "trustworthy" turned out to be partial. The LLM-as-judge showed that the **cross-company (Q13/14/15) and enumeration (Q7/Q24)** keys are **incomplete** — they're flagged `recall_reliable: true` but each company/aspect has more on-topic chunks than we hand-picked, so their fractional recall has the same fake-denominator problem the broad semantic questions do. Plus Q14 stretched two demand/talent chunks (0084/0114) into "supply chain." These keys are being re-scoped/completed under Path A. See `eval-audit.md` Finding D + `llm-judge-notes.md`. The v2 baseline numbers below stand for the *narrow* categories; treat cross-company/enumeration recall as provisional until the keys are completed.
+
 The repaired baseline above is **trustworthy** (labels correct — see `eval-audit.md`). But trustworthy ≠ **representative**. A golden set has two independent quality axes:
 
 - **Trustworthy** — the labels are right (the chunks marked relevant really are).

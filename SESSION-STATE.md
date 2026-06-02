@@ -275,14 +275,17 @@ Wrote `WHY.md`: the horizontal design-rationale doc (distinct from the vertical 
 
 **Read the ⏸ RESUME HERE block at the top first** — it has the live state. The naive pipeline (Stages 1–7) *and* the entire advanced retrieval stage are done: the **full stack `Expand(Decomposition(Hybrid(dense)))` ships in `ask`** (hybrid interleave+gate, decomposition Phase A, grounded retrieve-then-expand). Golden v2: dense recall@5 0.59 → **full stack 0.84, hit@5 1.00** (a relevant chunk for every golden question). Reranking, RRF, the standalone gate, MMR, and LLM-decomposition were measured and *lost* — documented in `notes/advanced/`. The spine = WHY.md Principle 6 + Principle 7 ("measure in composition") — which fired 3×: the gate (load-bearing only composed), and expand×hybrid (multiplicative — fixed Q18 TSMC).
 
-Next options (all optional; whiteboard-first per CLAUDE.md). **Retrieval is effectively done — the natural moves are now level-up or advance:**
-1. **LLM-as-judge eval** — score whatever is returned (no fixed key); the deeper fix for the 6 representative/recall-unreliable questions; bridges to Module 05. The eval becomes the frontier.
-2. **Update WHY.md / README** — add the enumeration arc (MMR dead-end, grounded expand win), Principle 7, and the full-stack ceiling (0.84 / hit 1.00). *(WHY.md/README may already be partially updated for hybrid — check.)*
-3. **Q24 labeling question** — is the 4-segment "end markets" golden too narrow vs the verticals the filing lists? An eval-trust question, small.
-4. **Move to Module 03 (agents)** — retrieval stage banked; advance the curriculum.
-5. **Cosmetic TODOs** — `embed.py` FutureWarning + chunk tail-preview cropping (below).
+**Docs are CURRENT** — WHY.md (Principles 6+7, enumeration limitation, full-stack ceiling), README (arc step 9, results tables, spine, CLI flags), and the one-page map `notes/advanced/retrieval-flow.md` are all done. Nothing doc-side outstanding for the retrieval stage.
 
-⚠ **Uncommitted (enumeration arc — commit before/at next session):** new `app/{mmr,expand}.py`, `notes/advanced/enumeration-notes.md`; modified `app/{eval,generate,store,retrieve}.py` (store/retrieve gained `include_embeddings` for MMR), `cli.py`, `notes/advanced/eval-notes.md`. (The hybrid arc + WHY.md/README doc pass may also still be uncommitted — check `git status`.)
+Next options (all optional; whiteboard-first per CLAUDE.md). **Retrieval is effectively done — the natural moves are now level-up or advance:**
+1. **LLM-as-judge eval** — score whatever is returned (no fixed key); the deeper fix for the 6 representative/recall-unreliable questions; bridges to Module 05. The eval becomes the frontier. *(My recommended next if staying in Module 02.)*
+2. **Move to Module 03 (agents)** — retrieval stage banked; advance the curriculum.
+3. **Q24 labeling question** — is the 4-segment "end markets" golden too narrow vs the verticals the filing lists? An eval-trust question, small.
+4. **Cosmetic TODOs** — `embed.py` FutureWarning + chunk tail-preview cropping (below).
+
+✅ **module-02-rag-app is fully committed** as of the last session (last commit: the retrieval-flow file). The entire advanced retrieval stage — hybrid, MMR, expand, all notes, WHY/README doc pass, retrieval-flow.md — is in. Only this SESSION-STATE update is uncommitted in this repo.
+
+⚠ **Still pending in the SIBLING repo** `ai-engineering-notes/`: `02-rag/hybrid-retrieval.md` is **untracked** (the theory companion I wrote this stage) — `git add` + commit it there. (`06-career/README.md` shows deleted — that's the old curriculum reframe, leave/commit as you see fit.)
 
 ## Open teaching threads still to revisit
 

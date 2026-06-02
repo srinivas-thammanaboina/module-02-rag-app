@@ -11,3 +11,7 @@ data/chroma/*
 !data/raw/.gitkeep
 !data/clean/.gitkeep
 !data/chroma/.gitkeep
+
+# Per-model LLM caches (reproducible from the API; not worth versioning):
+# decomp_cache.json, expand_cache.json, judge_cache.json.
+data/*.json
