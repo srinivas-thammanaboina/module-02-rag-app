@@ -208,6 +208,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="LLM for --expand: 'haiku' (default), 'sonnet', 'opus', or a full model name.",
     )
+    p_eval.add_argument(
+        "--judge-key",
+        dest="judge_key",
+        action="store_true",
+        help="Score representative questions against the judge-completed keys (sidecar overlay; "
+             "hand keys untouched). Run `judge --build-key` first.",
+    )
     p_eval.set_defaults(func=evaluation.run_cli)
 
     # --- Advanced stage: judge (LLM-as-judge — complete the answer key) ---

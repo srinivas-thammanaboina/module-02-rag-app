@@ -1,6 +1,6 @@
 # LLM-as-judge eval — letting the LLM help finish the answer key
 
-> **Status: DESIGN (whiteboarded, not yet built).** Written during the whiteboard step, before any code. The "What we ran" and "What we saw" sections are placeholders to fill in after the first run. Plain-English notes on purpose — see CLAUDE.md Rule 3.
+> **Status: DONE (Path A shipped).** Built `app/judge.py` + `judge`/`eval --judge-key` CLI; validated the judge (0.89/0.08 on complete keys, accepted); completed the 12 representative keys (sidecar `eval/golden_judge_labels.json`); re-measured the shipped stack honestly. Plain-English notes on purpose — see CLAUDE.md Rule 3.
 
 **Takeaway:** We have 7 broad questions we can't score honestly, because there's no complete list of right answers for them (a filing has *dozens* of risks; I hand-picked 5). The fix is to let the LLM **help finish the answer key** — not hand out grades. For each stuck question, gather every chunk any retriever found, ask the LLM "does this chunk help answer the question, yes/no?", and use the yes-pile as a fuller answer key. Then run our normal scoring against it. The catch: the LLM is now grading our homework, so **before we trust it, we test it on the 16 questions where we already know the answers by hand.** If it can't reproduce what we know is right, we don't trust it on the unknowns — and we stop.
 
@@ -106,6 +106,29 @@ Accept the audit finding and finish the job:
 2. **Then USE the validated judge to complete the broad keys** (spot-checking what it adds, like the Q12 audit), making the 7 representative questions finally measurable — the original goal.
 
 Recorded as **eval-audit Finding D** (the broad `reliable: true` keys are actually incomplete + the Q14 mislabel).
+
+## The payoff — what the fuller keys revealed about the shipped stack
+
+Ran the grader-check (re-scoped, accepted at 0.89/0.08 via `--force`), built the completed keys (`judge --build-key`), spot-checked the added chunks (real, not padding — Q7 found the energy/leasing/services/software revenue lines; Q13 recovered the omitted NVDA AI chunks; Q20 padded zero — acceptance rate tracks question *breadth*, 12% on GDPR → 85% on "main risks", not a yes-bias), then re-measured retrieval against the overlay (`eval --judge-key`, n_rel 11→23).
+
+**Dense vs the shipped `Expand(Decomposition(Hybrid))` stack, on judge-completed keys:**
+
+| metric | dense | full stack | Δ |
+|---|---|---|---|
+| recall@5 | 0.45 | 0.59 | +0.14 |
+| recall@10 | 0.59 | 0.74 | +0.15 |
+| hit@5 | 0.83 | 1.00 | +0.17 |
+| MRR | 0.71 | 0.84 | +0.13 |
+
+Per-category recall@5: **lexical 0.25→0.83 (+0.58)**, cross-company 0.23→0.29, enumeration 0.17→0.23, exact-term 0.80→0.80, **semantic 0.54→0.45 (−0.09)**.
+
+**Two truths the hand-key eval hid:**
+1. **The stack's win is overwhelmingly lexical, not broad.** The hand-key eval (dense 0.59 → full 0.84, +0.25) spread the gain across categories. Against complete keys the broad-question gains shrink to ~+0.06 — Q1 (23-chunk key) / Q13 (27-chunk key) need far more than 5 slots, so the gap compresses; the hand eval's tiny fake denominators **flattered** those gains. The lexical win (+0.58) is the robust real value and survives the honest keys intact.
+2. **A small semantic regression surfaces** — full stack drops semantic 0.54→0.45, concentrated in **Q2 "supply chain concentration" 1.00→0.50** (hybrid gate false-fires on the rare token "concentration", BM25 shoves 0036 out of top-5 — the exact gate-collateral hybrid-notes flagged). The hand-key eval mostly masked it; the fuller keys make it visible at category level.
+
+**Conclusion:** the shipped stack earns its keep on **opaque-token / lexical retrieval**, modestly on broad questions, at a **small semantic cost** — a sharper, more defensible claim than "+0.25 everywhere." The LLM-judge's real product wasn't a higher score; it was an honester eval that re-proportioned the story.
+
+**Caveats carried (not chased — the keys are good-enough):** mild adjacent-chunk over-inclusion on broad/enumeration questions (a few cost-table chunks in Q7, NVDA segment chunks in Q13); **Q14's completed key is Apple-heavy / thin on the Tesla side** (the judge's Tesla additions were generic boilerplate after we dropped the two mislabeled chunks) — flagged for a possible wider-pool revisit. Judge has mild run-to-run wobble on hard chunks (a 3-sample majority vote would steady it; deferred).
 
 ## Future experiments queue
 

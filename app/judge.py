@@ -383,6 +383,41 @@ def build_fuller_key(judge: RelevanceJudge, golden: list[dict], texts: dict[str,
 
 
 # ---------------------------------------------------------------------------
+# Overlay: use the judge-completed keys in the retrieval eval
+# ---------------------------------------------------------------------------
+
+
+def load_judge_keys(path=SIDECAR_PATH) -> dict:
+    """Load the judge-completed-key sidecar (or {} if it doesn't exist)."""
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def apply_judge_keys(golden: list[dict], sidecar: dict | None = None) -> list[dict]:
+    """Overlay judge-completed keys onto the golden set (hand keys on disk untouched).
+
+    For each question the sidecar completed, swap in its `new_key` as relevant_ids
+    and mark recall_reliable=True — so the representative questions finally get a
+    defensible fractional-recall number, scored against a pool-complete key instead
+    of the arbitrary hand-picked few. Questions with no sidecar entry pass through.
+    """
+    if sidecar is None:
+        sidecar = load_judge_keys()
+    qmap = sidecar.get("questions", {})
+    out = []
+    for g in golden:
+        entry = qmap.get(str(g["id"]))
+        if entry and entry.get("new_key"):
+            g = {**g, "relevant_ids": entry["new_key"], "recall_reliable": True, "judge_key": True}
+        out.append(g)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
 

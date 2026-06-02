@@ -238,6 +238,22 @@ def run_cli(args) -> None:
     """
     depth = getattr(args, "depth", None) or EVAL_DEPTH
     golden = load_golden()
+
+    # Optional: overlay the judge-completed keys (the representative questions get a
+    # pool-complete answer key instead of the arbitrary hand-picked few, so their
+    # fractional recall becomes meaningful). Hand keys on disk stay the source of
+    # truth — this is a read-time overlay. See app/judge.py + llm-judge-notes.md.
+    judge_key = getattr(args, "judge_key", False)
+    if judge_key:
+        from app.judge import apply_judge_keys, SIDECAR_PATH
+
+        if not SIDECAR_PATH.exists():
+            print(f"\n[eval] --judge-key set but no sidecar at "
+                  f"{SIDECAR_PATH.relative_to(config.root)}. Run "
+                  f"`python cli.py judge --build-key` first.\n")
+            return
+        golden = apply_judge_keys(golden)
+
     retriever = Retriever(get_vector_store())
     label = "baseline (naive dense)"
 
@@ -306,6 +322,9 @@ def run_cli(args) -> None:
         retriever = ExpandRetriever(retriever, model=model_name)
         tag = f"expand (grounded aspects, {key})"
         label = tag if label == "baseline (naive dense)" else f"{label} + {tag}"
+
+    if judge_key:
+        label = f"{label}  [judge-key overlay]"
 
     rows = evaluate(retriever, golden, depth=depth)
     agg = aggregate(rows)

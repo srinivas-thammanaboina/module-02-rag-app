@@ -44,7 +44,35 @@ The naive 7-stage pipeline is complete. The **advanced-RAG stage** is run **eval
 
 **Eval harness:** `notes/advanced/eval-notes.md` + `eval-audit.md`. Metrics **recall@k + MRR**, retrieval-only (faithfulness is Module 05). **Baselines:** v1 trustworthy = recall@5 0.79 (n_rel=10). **Golden v2 (24 Q, current): dense recall@5 = 0.59; SHIPPED FULL STACK `Expand(Decomposition(Hybrid(interleave,gated)))` = recall@5 0.84 / recall@10 0.92 / hit@5 1.00 / cross-company 0.94 / lexical 0.90 / enumeration 0.50.** Plain-terms metric explainer in `reading-eval-metrics.md`.
 
-### ⏸ RESUME HERE (enumeration arc CONCLUDED + FULL STACK shipped; retrieval stage effectively DONE — next = LLM-judge / Module 03)
+### ⏸ RESUME HERE (Session 3 — LLM-as-judge eval DONE via Path A; the eval is now HONESTER — next = Module 03 or eval refinements)
+
+**LLM-AS-JUDGE (the deferred "deeper fix for the representative questions") is DONE.** New: `app/judge.py` (`RelevanceJudge` — labels (question, chunk)→yes/no, a LABELER not a grader; cached per `model#rubric-version`), `judge` CLI (Step 1 grader-check; `--build-key` Step 2), `eval --judge-key` overlay. Notes: `notes/advanced/llm-judge-notes.md` (plain-English, full run log). Sidecar: `eval/golden_judge_labels.json` (judge-completed keys; **golden.jsonl hand keys untouched**). Cache: gitignored `data/judge_cache.json`.
+
+**Approach (decided with user):** use the LLM as a LABELER to *complete the answer key*, not a grader. 7 (now 12) broad "representative" questions had no complete key → fake recall denominator. Validate the judge against questions whose keys ARE complete, then use it to complete the broad ones.
+
+**The arc, measured:**
+- **Grader-check, pre-committed bar:** recovery of known-right ≥0.90, false-accept of known-wrong ≤0.15. v1 FAILed 0.88/0.22 — but reading the chunks INVERTED it (the Q12-audit pattern): the "false-accepts" were the judge being RIGHT and our key being INCOMPLETE.
+- **v2 added a COMPANY constraint** (give the judge each chunk's ticker → reject wrong-company) + a fragment line. Removed ALL off-company errors; aggregate didn't budge → confirms residual = on-company genuinely-relevant chunks (incomplete keys), NOT judge leniency. **You cannot validate a key-completion tool against incomplete keys (circular).**
+- **Eval-audit Finding D** (`eval-audit.md`): the broad cross-company/enumeration questions flagged `reliable: true` are actually INCOMPLETE → re-flagged **Q7/13/14/15/24 → representative**; dropped Q14's mislabeled **0084/0114** (demand/talent, not supply chain — still used correctly in Q1/Q4). **golden.jsonl now 11 reliable / 12 representative / 1 control.**
+- **Validated on the honest complete-key set: 0.89 recovery / 0.08 false-accept.** False-accept clears comfortably; recovery a hair under 0.90 (two hard chunks: Q2-0051 fragment, Q17-0011). **Accepted** (option a, documented — gap is 2 nameable chunks, not a systemic flaw). Cheap Haiku, **NO Opus** (spine, 4th firing — capability wasn't the lever, the labels were).
+- **Completed the 12 representative keys** (`judge --build-key --force`; spot-checked = real chunks, not padding; acceptance rate tracks question *breadth* 12%→85%, not a yes-bias) → **`eval --judge-key`** scores retrieval against fuller keys (n_rel 11→23).
+
+**THE PAYOFF (dense vs shipped `Expand(Decomposition(Hybrid))`, judge-completed keys):** recall@5 **0.45→0.59**, recall@10 0.59→0.74, hit@5 **0.83→1.00**, MRR 0.71→0.84. **The honest eval RE-PROPORTIONS the win:** value is overwhelmingly **lexical (recall@5 0.25→0.83, +0.58)** — the hand-key eval's "+0.25 everywhere" was tiny fake denominators flattering broad-question gains (which shrink to ~+0.06 against complete keys). And a **small semantic regression surfaces** (0.54→0.45, mostly **Q2 "concentration" hybrid-gate collateral 1.00→0.50**) that the hand-key eval masked. **Conclusion: the advanced stack earns its keep on opaque-token/lexical retrieval, modestly on broad questions, at a small semantic cost** — sharper and more defensible than "+0.25 everywhere." The judge's real product wasn't a higher score; it was an honester eval.
+
+**Caveats carried:** mild adjacent-chunk over-inclusion on broad/enumeration completed keys (a few cost-table chunks in Q7, NVDA segment chunks in Q13); **Q14's completed key is Apple-heavy / thin on Tesla** (judge's Tesla adds were boilerplate after the mislabel drop) — possible wider-pool revisit. Judge has mild run-to-run wobble on hard chunks (a 3-sample majority vote would steady it; deferred).
+
+**NEXT — pick one (retrieval AND eval now both effectively done):**
+1. **Move to Module 03 (agents)** — the whole Module 02 retrieval+eval arc is banked. *(Natural advance.)*
+2. **Address the semantic regression** — the hybrid gate's "concentration" false-fire (Q2 1.00→0.50), now measurable; a small targeted fix.
+3. **Q14 Tesla-side key** — wider pool / manual add to firm up that one completed key.
+4. **Judge robustness** — 3-sample majority vote to kill the run-to-run wobble.
+5. **Cosmetic TODOs** — `embed.py` FutureWarning (still firing — seen in these runs), chunk tail-preview.
+
+**Git (user-driven):** uncommitted this session — `app/judge.py`, `cli.py` (judge + `--judge-key`), `app/eval.py` (`--judge-key`), `eval/golden.jsonl` (Finding D re-flag), `eval/golden_judge_labels.json` (sidecar), `.gitignore` (`data/*.json`), `CLAUDE.md` (plain-English rule), notes (`llm-judge-notes.md` new; `eval-audit.md`/`eval-notes.md` Finding D), this SESSION-STATE.
+
+---
+
+### PREVIOUSLY — enumeration arc CONCLUDED + FULL STACK shipped (retrieval stage done)
 
 **ENUMERATION (Experiment 9) DONE — the full stack now ships in `ask`:** `Expand(Decomposition(Hybrid(interleave, gated)))` (generate.py). The retrieval advanced stage is effectively complete. New code: `app/mmr.py`, `app/expand.py`. Notes: `enumeration-notes.md`. CLI: `eval --mmr [--mmr-lambda]`, `eval --expand [--expander]`.
 
@@ -277,13 +305,15 @@ Wrote `WHY.md`: the horizontal design-rationale doc (distinct from the vertical 
 
 **Docs are CURRENT** — WHY.md (Principles 6+7, enumeration limitation, full-stack ceiling), README (arc step 9, results tables, spine, CLI flags), and the one-page map `notes/advanced/retrieval-flow.md` are all done. Nothing doc-side outstanding for the retrieval stage.
 
-Next options (all optional; whiteboard-first per CLAUDE.md). **Retrieval is effectively done — the natural moves are now level-up or advance:**
-1. **LLM-as-judge eval** — score whatever is returned (no fixed key); the deeper fix for the 6 representative/recall-unreliable questions; bridges to Module 05. The eval becomes the frontier. *(My recommended next if staying in Module 02.)*
-2. **Move to Module 03 (agents)** — retrieval stage banked; advance the curriculum.
-3. **Q24 labeling question** — is the 4-segment "end markets" golden too narrow vs the verticals the filing lists? An eval-trust question, small.
-4. **Cosmetic TODOs** — `embed.py` FutureWarning + chunk tail-preview cropping (below).
+Next options (all optional; whiteboard-first per CLAUDE.md). **Retrieval AND the eval are now both effectively done (LLM-judge shipped via Path A, Session 3) — the natural move is to advance:**
+1. **Move to Module 03 (agents)** — the whole Module 02 retrieval + eval arc is banked. *(Natural advance.)*
+2. **Address the semantic regression** — hybrid gate's "concentration" false-fire (Q2 1.00→0.50), now measurable; small targeted fix.
+3. **Q14 Tesla-side completed key** — wider pool / manual add to firm it up (Apple-heavy after the mislabel drop).
+4. **Judge robustness** — 3-sample majority vote to kill the run-to-run wobble.
+5. **Cosmetic TODOs** — `embed.py` FutureWarning + chunk tail-preview cropping (below).
+(See the Session-3 ⏸ RESUME HERE block at the top for the full LLM-judge arc + the fuller-key numbers.)
 
-✅ **module-02-rag-app is fully committed** as of the last session (last commit: the retrieval-flow file). The entire advanced retrieval stage — hybrid, MMR, expand, all notes, WHY/README doc pass, retrieval-flow.md — is in. Only this SESSION-STATE update is uncommitted in this repo.
+⚠ **module-02-rag-app has uncommitted Session-3 work** (the LLM-judge / Path A arc). New/changed: `app/judge.py`, `cli.py` (judge subcommand + `eval --judge-key`), `app/eval.py` (`--judge-key` overlay), `eval/golden.jsonl` (Finding D re-flag + Q14 mislabel drop), `eval/golden_judge_labels.json` (sidecar), `.gitignore` (`data/*.json`), `CLAUDE.md` (plain-English rule), `notes/advanced/llm-judge-notes.md` (new), `notes/advanced/eval-audit.md` + `eval-notes.md` (Finding D), this SESSION-STATE. The prior advanced retrieval stage (hybrid/MMR/expand/docs/retrieval-flow.md) was committed last session.
 
 ⚠ **Still pending in the SIBLING repo** `ai-engineering-notes/`: `02-rag/hybrid-retrieval.md` is **untracked** (the theory companion I wrote this stage) — `git add` + commit it there. (`06-career/README.md` shows deleted — that's the old curriculum reframe, leave/commit as you see fit.)
 
